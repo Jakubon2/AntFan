@@ -1,8 +1,8 @@
 name: Sestavení AntFan.exe
 
 # Spouští se:
-#  - ručně (Actions → Sestavení AntFan.exe → Run workflow) → exe ke stažení v Artifacts
-#  - značkou verze, např. `git tag v1.0.0 && git push --tags` → exe přiložené k Release
+#  - ručně (Actions → Sestavení AntFan.exe → Run workflow) → exe a macOS zip ke stažení v Artifacts
+#  - značkou verze, např. `git tag v1.0.0 && git push --tags` → exe i zip přiložené k Release
 on:
   workflow_dispatch:
   push:
@@ -45,9 +45,70 @@ jobs:
           name: AntFan-exe
           path: dist/AntFan.exe
 
+  build-macos:
+    runs-on: macos-latest  # Apple Silicon (arm64)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Závislosti
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller==6.11.1
+
+      - name: Kontrola libusb (dylib v libusb-package)
+        run: |
+          python - <<'EOF'
+          import libusb_package
+          p = libusb_package.get_library_path()
+          print("libusb:", p)
+          assert p and str(p).endswith(".dylib"), "libusb-package neobsahuje dylib"
+          assert libusb_package.get_libusb1_backend() is not None
+          EOF
+
+      - name: Sestavení
+        run: >
+          pyinstaller --noconfirm --windowed --name AntFan
+          --osx-bundle-identifier io.github.jakubon2.antfan
+          --collect-all libusb_package --collect-submodules openant
+          AntFan.pyw
+
+      - name: Kontrola aplikace (selftest)
+        run: |
+          set +e
+          dist/AntFan.app/Contents/MacOS/AntFan --selftest selftest.txt
+          code=$?
+          set -e
+          cat selftest.txt
+          if [ $code -ne 0 ]; then echo "Selftest selhal (kód $code)"; exit 1; fi
+          file dist/AntFan.app/Contents/MacOS/AntFan
+          find dist/AntFan.app -name 'libusb-1.0*.dylib' -exec file {} \;
+
+      - name: Zabalení
+        run: ditto -c -k --keepParent dist/AntFan.app AntFan-macOS.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AntFan-macOS
+          path: AntFan-macOS.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
       - name: Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/AntFan.exe
+          files: |
+            AntFan.exe
+            AntFan-macOS.zip
           generate_release_notes: true

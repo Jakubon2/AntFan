@@ -1,4 +1,8 @@
-"""Uložení nastavení do %APPDATA%\\AntFan\\config.json."""
+"""Uložení nastavení do config.json.
+
+Windows: %APPDATA%\\AntFan, macOS: ~/Library/Application Support/AntFan,
+jinde ~/.antfan.
+"""
 from __future__ import annotations
 
 import json
@@ -18,6 +22,8 @@ def app_dir() -> Path:
     if sys.platform == "win32":
         base = Path(os.environ.get("APPDATA", Path.home()))
         d = base / "AntFan"
+    elif sys.platform == "darwin":
+        d = Path.home() / "Library" / "Application Support" / "AntFan"
     else:
         d = Path.home() / ".antfan"
     d.mkdir(parents=True, exist_ok=True)

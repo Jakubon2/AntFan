@@ -1,4 +1,5 @@
-"""Kontrola sestaveného AntFan.exe: `AntFan.exe --selftest výsledek.txt`.
+"""Kontrola sestaveného programu: `AntFan.exe --selftest výsledek.txt`
+(macOS: `AntFan.app/Contents/MacOS/AntFan --selftest výsledek.txt`).
 
 Ověří, že do exe se dostalo všechno potřebné (openant, pyusb + libusb DLL,
 cryptography, tkinter) a že platí naše opravy openant. Nic neotvírá,
@@ -41,7 +42,7 @@ def run(out_path: str | None = None) -> int:
         import libusb_package
 
         path = libusb_package.get_library_path()
-        assert path, "chybí libusb-1.0.dll"
+        assert path, "chybí knihovna libusb-1.0 (dll/dylib)"
         assert libusb_package.get_libusb1_backend() is not None, "libusb backend nejde načíst"
         return str(path)
 

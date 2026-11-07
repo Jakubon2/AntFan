@@ -22,6 +22,7 @@ import logging
 import math
 import queue
 import random
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -58,6 +59,8 @@ class FoundDevice:
 
 def _friendly_error(e: Exception) -> str:
     if isinstance(e, usb_diag.DongleMissing) or type(e).__name__ == "DriverNotFound":
+        if sys.platform == "darwin":  # na Macu se ovladač neinstaluje
+            return "ANT+ dongle nenalezen. Je zapojený? Zkuste jiný USB port nebo redukci."
         return (
             "ANT+ dongle nenalezen. Je zapojený? Má ovladač libusbK nebo WinUSB "
             "(viz README)?"

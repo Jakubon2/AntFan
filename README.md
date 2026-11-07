@@ -1,6 +1,6 @@
 # AntFan – ventilátor řízený výkonem a tepem (ANT+)
 
-Program pro Windows 11:
+Program pro Windows 10/11 a macOS (Apple Silicon):
 
 1. připojí se k ANT+ USB donglu,
 2. vyhledá všechny tepové pásy, powermetry a chytré trenažéry (ANT+ FE-C) v okolí,
@@ -16,11 +16,11 @@ Program pro Windows 11:
 | **Powermetr** | jakýkoli ANT+: pedály (Garmin Rally, Favero Assioma), kliky (Stages, 4iiii, Quarq) | jen Bluetooth |
 | **Chytrý trenažér** | jakýkoli s ANT+ FE-C: Tacx, Wahoo KICKR, Elite, Zwift Hub… | trenažér jen s Bluetooth |
 | **Ventilátor** | Xiaomi Smart Standing Fan 2 Lite (`dmaker.fan.1c`), odzkoušený | starší Xiaomi se starým protokolem, ventilátory s plynulou rychlostí v %, jiné značky |
-| **Počítač** | Windows 10 a 11 | macOS a Linux zatím ne |
+| **Počítač** | Windows 10 a 11, macOS 11+ na Macu s Apple Silicon (M1 a novější), viz [macOS](#macos) | Mac s procesorem Intel (sestavení je jen pro arm64), Linux zatím ne |
 
 Samostatné čidlo rychlosti a kadence AntFan nepoužívá, kadenci bere z powermetru nebo trenažéru.
 
-**Jiné Xiaomi ventilátory:** novější modely s protokolem MIoT a stupni rychlosti (1–5) by měly jít, ale nikdo je nezkoušel. V `%APPDATA%\AntFan\config.json` je potřeba v sekci `fan` upravit `max_level` a čísla vlastností (`power_siid/piid`, `level_siid/piid`, `buzzer_…`, `light_…`) podle specifikace modelu na <https://home.miot-spec.com>. Když to u vás funguje, napište model a hodnoty do Issues.
+**Jiné Xiaomi ventilátory:** novější modely s protokolem MIoT a stupni rychlosti (1–5) by měly jít, ale nikdo je nezkoušel. V `%APPDATA%\AntFan\config.json` (na macOS `~/Library/Application Support/AntFan/config.json`) je potřeba v sekci `fan` upravit `max_level` a čísla vlastností (`power_siid/piid`, `level_siid/piid`, `buzzer_…`, `light_…`) podle specifikace modelu na <https://home.miot-spec.com>. Když to u vás funguje, napište model a hodnoty do Issues.
 
 ## Instalace
 
@@ -43,6 +43,28 @@ Jinak: stáhněte [Zadig](https://zadig.akeo.ie/), *Options → List All Devices
 Dvojklik na **`AntFan.exe`**, nebo u verze ze zdrojového kódu na **`run.bat`**. Při prvním spuštění `run.bat` se vytvoří virtuální prostředí a nainstalují závislosti (cca 1 minuta).
 
 Exe si můžete sestavit i sami: spusťte **`build_exe.bat`**, výsledek najdete v `dist\AntFan.exe`.
+
+## macOS
+
+Aplikace pro Mac s Apple Silicon (M1 a novější). Ovladač donglu se na Macu neinstaluje ani nemění, Zadig není potřeba.
+
+1. V sekci [Releases](../../releases) stáhněte **`AntFan-macOS.zip`** a rozbalte ho (dvojklik).
+2. **`AntFan.app`** přetáhněte do složky *Aplikace*.
+3. **První spuštění:** aplikace není podepsaná u Applu, takže ji macOS dvojklikem neotevře. Klikněte na ni **pravým tlačítkem → Otevřít** a v dialogu znovu *Otevřít*. Další spuštění už jde normálně.
+   Když macOS hlásí, že je aplikace „poškozená“ nebo ji nejde otevřít ani takhle, odstraňte příznak stažení v Terminálu:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/AntFan.app
+   ```
+4. Zapojte ANT+ dongle (na USB-C přes redukci) a spusťte měření.
+
+Dongle může naráz používat jen jedna aplikace. Zwift, ROUVY, TrainerRoad, Garmin Express apod. musí dongle pustit, jinak AntFan hlásí, že je obsazený (a vypíše, který program běží). Garmin Express a Zwift Launcher běží na pozadí i po zavření okna, zkontrolujte ikonky v horní liště.
+
+Nastavení a log jsou v `~/Library/Application Support/AntFan/` (Nastavení → Diagnostika → *Otevřít složku s logem*).
+
+**Ze zdrojového kódu:** Python 3.10+ z <https://www.python.org/downloads/macos/> (obsahuje tkinter), pak v Terminálu ve složce projektu:
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/python -m antfan
+```
 
 ## Připojení ventilátoru (IP adresa a token)
 
@@ -154,7 +176,7 @@ Program na to pamatuje několika způsoby:
 - **Nastavení → Diagnostika → Resetovat dongle:** uvolní dongle a provede USB reset, stejně jako by se vytáhl a zapojil.
 - **Vytažení za běhu:** měření se po zapojení obnoví samo.
 
-Když nic z toho nepomůže, zapojte dongle do jiného USB portu (ne do hubu) a ve Správci zařízení zkontrolujte, že má ovladač libusbK.
+Když nic z toho nepomůže, zapojte dongle do jiného USB portu (ne do hubu) a na Windows ve Správci zařízení zkontrolujte, že má ovladač libusbK.
 
 ### Výkon občas na chvíli spadne na 0 W
 **Hlavní příčina nalezena a opravena:** knihovna openant otevírala kanály v režimu „background scanning“. Kanál se v něm na senzor nezachytí a zprávy chytá jen náhodou. Podle logu dorazilo při měření jen 7–11 % zpráv, zatímco při hledání senzorů ~90 %. AntFan teď otevírá normální sledovací kanály a příjem by měl být 90–100 %.

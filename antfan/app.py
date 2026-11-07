@@ -110,13 +110,20 @@ class Fonts:
         fams = set(tkfont.families(root))
         base = "Segoe UI" if "Segoe UI" in fams else tkfont.nametofont("TkDefaultFont").actual()["family"]
         semi = "Segoe UI Semibold" if "Segoe UI Semibold" in fams else None
-        self.small = (base, 9)
-        self.body = (base, 10)
-        self.body_b = (semi, 10) if semi else (base, 10, "bold")
-        self.title = (semi, 11) if semi else (base, 11, "bold")
-        self.h2 = (semi, 13) if semi else (base, 13, "bold")
-        self.big = (semi, 40) if semi else (base, 40, "bold")
-        self.chart = (base, 8)
+        # macOS: systémové písmo (SF) z TkDefaultFont; Tk tam bere 1 bod = 1 pixel,
+        # takže stejné velikosti jako na Windows (96 dpi) by byly o třetinu menší
+        k = 1.3 if sys.platform == "darwin" else 1.0
+
+        def sz(n):
+            return int(round(n * k))
+
+        self.small = (base, sz(9))
+        self.body = (base, sz(10))
+        self.body_b = (semi, sz(10)) if semi else (base, sz(10), "bold")
+        self.title = (semi, sz(11)) if semi else (base, sz(11), "bold")
+        self.h2 = (semi, sz(13)) if semi else (base, sz(13), "bold")
+        self.big = (semi, sz(40)) if semi else (base, sz(40), "bold")
+        self.chart = (base, sz(8))
 
 
 class StatusDot(tk.Frame):
@@ -624,7 +631,9 @@ class App:
         for key, text in THEMES:
             ttk.Radiobutton(p, text=text, variable=self.theme_var, value=key,
                             command=self.on_theme).pack(anchor="w", pady=2)
-        self._lbl(p, "Podle systému: řídí se nastavením Windows (Přizpůsobení → Barvy).",
+        self._lbl(p, "Podle systému: řídí se nastavením " + (
+            "macOS (Nastavení systému → Vzhled)." if sys.platform == "darwin"
+            else "Windows (Přizpůsobení → Barvy)."),
                   anchor="w").pack(fill="x", pady=(8, 0))
 
     # --- Diagnostika
@@ -1217,8 +1226,8 @@ def _check_single_instance(inst: SingleInstance) -> bool:
     if not verified:
         messagebox.showwarning(
             "AntFan už běží",
-            "AntFan už běží. Pokud jeho okno nevidíte, ukončete ho ve Správci úloh "
-            "(proces AntFan.exe nebo pythonw.exe) a spusťte program znovu.")
+            f"AntFan už běží. Pokud jeho okno nevidíte, ukončete ho {usb_diag.task_manager_hint()} "
+            "a spusťte program znovu.")
         root.destroy()
         return False
     if not messagebox.askyesno(
@@ -1234,7 +1243,7 @@ def _check_single_instance(inst: SingleInstance) -> bool:
         if inst.acquire():
             root.destroy()
             return True
-    messagebox.showerror("AntFan", "Starou instanci se nepodařilo ukončit. Zkuste Správce úloh.")
+    messagebox.showerror("AntFan", f"Starou instanci se nepodařilo ukončit. Zkuste {usb_diag.task_manager_name()}.")
     root.destroy()
     return False
 

@@ -2,7 +2,8 @@
 
 Dvě instance by se praly o ANT+ dongle a druhá by hlásila, že je dongle
 připojen k jiné aplikaci. Na Windows se používá pojmenovaný mutex (uvolní se
-i při pádu procesu), jinde zámek souboru.
+i při pádu procesu), jinde (macOS, Linux) zámek souboru přes fcntl.flock –
+ten systém uvolní při ukončení procesu, i při pádu.
 """
 from __future__ import annotations
 
