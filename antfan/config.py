@@ -33,6 +33,9 @@ class AppConfig:
     simulation: bool = False
     auto_mode: bool = True
     theme: str = "system"  # light | dark | system
+    web_enabled: bool = False  # ovládání z mobilu (server v LAN)
+    web_port: int = 8686
+    web_key: str = ""  # tajná část adresy /m/<klíč>
 
 
 def _merge(cls, data: dict):

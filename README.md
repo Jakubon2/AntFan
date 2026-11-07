@@ -142,6 +142,18 @@ Zaškrtnutím **Simulace (bez hardwaru)** program vygeneruje falešné senzory a
 
 Postup testování všech funkcí je v souboru [TESTOVANI.md](TESTOVANI.md).
 
+## Ovládání z mobilu
+Hodnoty (výkon, tep, stupeň) a přepínač **Auto | Vyp | 1–3** lze mít i na telefonu na řídítkách. Telefon musí být ve stejné Wi-Fi jako počítač, nic se neinstaluje.
+
+1. **Nastavení → Mobil → Povolit ovládání z mobilu** (výchozí je vypnuto).
+2. Načtěte v telefonu QR kód, nebo otevřete adresu ve tvaru `http://<IP počítače>:8686/m/<klíč>`.
+3. Windows se napoprvé zeptá, zda AntFan smí do sítě. Povolte **soukromé sítě**, jinak se telefon nepřipojí.
+
+- Adresa obsahuje náhodný klíč. Bez něj server odpoví 404. Kdo adresu zná, může ventilátor ovládat. Tlačítko **Nový klíč** starou adresu zneplatní.
+- Port (výchozí 8686) jde změnit, když je obsazený.
+- Stránka se obnovuje každou sekundu a řídí se tmavým režimem telefonu. Obrazovku telefonu nechte rozsvícenou.
+- Pro vlastní skripty: `GET /m/<klíč>/api/state` vrací JSON, `POST /m/<klíč>/api/level` s tělem `{"level": "auto"}` nebo `{"level": 2}` přepne stupeň.
+
 ## Řešení problémů
 
 ### „Dongle je připojen k jiné aplikaci“, i když žádná neběží
@@ -184,5 +196,7 @@ antfan/usb_diag.py      diagnostika obsazeného donglu, USB reset, oprava úniku
 antfan/single_instance.py  jen jedna spuštěná instance
 antfan/miio_fan.py      protokol miIO pro Xiaomi ventilátor (bez python-miio)
 antfan/controller.py    výpočet stupně: chytrý režim, % FTP, vyhlazení, hystereze, dofukování
+antfan/web.py           ovládání z mobilu: HTTP server a stránka pro telefon
+antfan/qr.py            QR kód s adresou pro mobil (bez knihoven)
 antfan/app.py           GUI (tkinter)
 ```

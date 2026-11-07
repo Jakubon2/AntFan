@@ -24,7 +24,7 @@ from tkinter import messagebox, ttk
 
 from . import __version__
 from . import config as config_mod
-from . import usb_diag
+from . import qr, usb_diag, web
 from .ant_backend import FE_TYPE, HR_TYPE, MAX_CHANNELS, PM_TYPE, AntBackend, FoundDevice, SimulatedBackend
 from .controller import Controller
 from .miio_fan import FanWorker, MiioError, SimulatedFan, XiaomiFan
@@ -192,6 +192,9 @@ class App:
         self.fan_status_text, self.fan_ok = "nepřipojeno", False
         self._apply_job = None
         self._last_bars = None
+        self.web = web.WebServer(self.events)  # ovládání z mobilu; přežije _rebuild_ui
+        self.web_error = ""
+        self._web_last = 0.0
 
         for d in self.cfg.selected:
             fd = FoundDevice(d[0], d[1], d[2] if len(d) > 2 else 0)
@@ -219,6 +222,7 @@ class App:
         self._make_backend()
         self._make_fan()
         self._refresh_tree()
+        self._web_sync()
 
         root.update_idletasks()
         need_w, need_h = root.winfo_reqwidth(), root.winfo_reqheight()
@@ -414,6 +418,7 @@ class App:
                                     ("control", "Řízení", self._page_control),
                                     ("behavior", "Chování", self._page_behavior),
                                     ("look", "Vzhled", self._page_look),
+                                    ("mobile", "Mobil", self._page_mobile),
                                     ("diag", "Diagnostika", self._page_diag)):
             lb = tk.Label(nav, text=title, bg=SURFACE, fg=MUTED, font=self.fonts.body, anchor="w",
                           padx=14, pady=6, width=14, cursor="hand2")
@@ -626,6 +631,44 @@ class App:
                             command=self.on_theme).pack(anchor="w", pady=2)
         self._lbl(p, "Podle systému: řídí se nastavením Windows (Přizpůsobení → Barvy).",
                   anchor="w").pack(fill="x", pady=(8, 0))
+
+    # --- Mobil
+    def _page_mobile(self, p):
+        self._page_head(p, "Mobil", "Hodnoty a přepínač stupně na telefonu ve stejné Wi-Fi. "
+                                    "Stačí otevřít adresu v prohlížeči, nic se neinstaluje.")
+        self.web_var = tk.BooleanVar(value=self.cfg.web_enabled)
+        ttk.Checkbutton(p, text="Povolit ovládání z mobilu", variable=self.web_var,
+                        command=self.on_web_toggle).pack(anchor="w")
+        row = tk.Frame(p, bg=BG)
+        row.pack(fill="x", pady=(8, 0))
+        ttk.Label(row, text="Port").pack(side="left")
+        self.e_web_port = ttk.Entry(row, width=7, justify="center")
+        self.e_web_port.insert(0, str(self.cfg.web_port))
+        self.e_web_port.pack(side="left", padx=(8, 0))
+        self.e_web_port.bind("<Return>", lambda e: self.on_web_port())
+        self.e_web_port.bind("<FocusOut>", lambda e: self.on_web_port())
+        self.lbl_web_status = self._lbl(p, "", font=self.fonts.body, anchor="w", justify="left",
+                                        wraplength=int(440 * self.px))
+        self.lbl_web_status.pack(fill="x", pady=(8, 8))
+        box = tk.Frame(p, bg=BG)
+        box.pack(fill="x")
+        self.qr_canvas = tk.Canvas(box, width=1, height=1, bg=BG, highlightthickness=0)
+        self.qr_canvas.pack(side="left", anchor="n", padx=(0, 14))
+        right = tk.Frame(box, bg=BG)
+        right.pack(side="left", fill="both", expand=True)
+        self._lbl(right, "Adresa", fg=TEXT, font=self.fonts.body_b, anchor="w").pack(fill="x")
+        self.e_web_url = ttk.Entry(right, width=44)
+        self.e_web_url.pack(fill="x", pady=(2, 6))
+        bf = tk.Frame(right, bg=BG)
+        bf.pack(fill="x")
+        ttk.Button(bf, text="Zkopírovat adresu", command=self.on_web_copy).pack(side="left")
+        ttk.Button(bf, text="Nový klíč", command=self.on_web_new_key).pack(side="left", padx=8)
+        self._lbl(right, "Kdo zná adresu, může ventilátor ovládat. Nový klíč starou adresu zneplatní.",
+                  anchor="w", justify="left", wraplength=int(300 * self.px)).pack(fill="x", pady=(8, 0))
+        self._lbl(p, "Windows se při prvním zapnutí zeptá, zda AntFan smí do sítě. Povolte soukromé "
+                     "sítě, jinak se telefon nepřipojí.",
+                  anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(12, 0))
+        self._web_refresh_page()
 
     # --- Diagnostika
     def _page_diag(self, p):
@@ -918,6 +961,137 @@ class App:
     def _update_segment(self):
         self.seg.set("auto" if self.auto_var.get() else self.manual_level)
 
+    # ============================================================ mobil
+    def _web_sync(self):
+        """Spustí nebo zastaví server podle nastavení."""
+        c = self.cfg
+        self.web_error = ""
+        if c.web_enabled:
+            if not c.web_key:
+                c.web_key = web.new_key()
+                config_mod.save(c)
+            self.web.key = c.web_key
+            if not (self.web.running and self.web.port == c.web_port):
+                try:
+                    self.web.start(c.web_port, c.web_key)
+                except OSError as e:
+                    log.warning("Web pro mobil nejde spustit: %s", e)
+                    self.web_error = f"Port {c.web_port} nejde použít (obsazený?). Zvolte jiný."
+        else:
+            self.web.stop()
+        self._web_refresh_page()
+
+    def _web_url(self) -> str:
+        return web.page_url(web.lan_ip(), self.web.port, self.web.key) if self.web.running else ""
+
+    def _web_refresh_page(self):
+        if not hasattr(self, "lbl_web_status"):
+            return
+        url = self._web_url()
+        if self.web_error:
+            text, col = self.web_error, BAD
+        elif url:
+            text, col = f"Běží na portu {self.web.port}. Otevřete adresu v telefonu nebo načtěte QR kód.", OK
+        else:
+            text, col = "Vypnuto.", MUTED
+        self.lbl_web_status.configure(text=text, fg=col)
+        self.e_web_url.configure(state="normal")
+        self.e_web_url.delete(0, "end")
+        self.e_web_url.insert(0, url)
+        self.e_web_url.configure(state="readonly")
+        self._draw_qr(url)
+
+    def _draw_qr(self, url):
+        cv = self.qr_canvas
+        cv.delete("all")
+        if not url:
+            cv.configure(width=1, height=1)
+            return
+        try:
+            m = qr.encode(url)
+        except ValueError:
+            cv.configure(width=1, height=1)
+            return
+        cell = max(2, int(3 * self.px))
+        quiet = 4
+        side = (len(m) + 2 * quiet) * cell
+        cv.configure(width=side, height=side)
+        cv.create_rectangle(0, 0, side, side, fill="#ffffff", outline="")  # QR vždy tmavé na bílém
+        for y, row in enumerate(m):
+            for x, dark in enumerate(row):
+                if dark:
+                    x0, y0 = (x + quiet) * cell, (y + quiet) * cell
+                    cv.create_rectangle(x0, y0, x0 + cell, y0 + cell, fill="#000000", outline="")
+
+    def on_web_toggle(self):
+        self.cfg.web_enabled = self.web_var.get()
+        config_mod.save(self.cfg)
+        self._web_sync()
+
+    def on_web_port(self):
+        try:
+            port = int(self.e_web_port.get())
+            if not 1024 <= port <= 65535:
+                raise ValueError
+        except ValueError:
+            self.lbl_web_status.configure(text="Port musí být číslo 1024–65535.", fg=BAD)
+            return
+        if port != self.cfg.web_port:
+            self.cfg.web_port = port
+            config_mod.save(self.cfg)
+            self._web_sync()
+
+    def on_web_new_key(self):
+        self.cfg.web_key = web.new_key()
+        config_mod.save(self.cfg)
+        self._web_sync()
+
+    def on_web_copy(self):
+        url = self._web_url()
+        if not url:
+            self.lbl_web_status.configure(text="Nejdřív ovládání z mobilu povolte.", fg=BAD)
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(url)
+        self.lbl_web_status.configure(text="Adresa zkopírována.", fg=OK)
+
+    def _web_publish(self, desired, reason, status, status_col):
+        """Snímek stavu pro server (volá _tick v hlavním vlákně)."""
+        now = time.monotonic()
+        if not self.web.running or now - self._web_last < 0.5:
+            return
+        self._web_last = now
+        ctrl = self.controller
+        try:
+            rxq = self.backend.rx_quality() if self.backend is not None else {}
+        except Exception:  # noqa: BLE001
+            rxq = {}
+        rx = []
+        for key, q in rxq.items():
+            d = self.devices.get(key)
+            rx.append({"name": d.type_name if d else str(key[0]), "q": q})
+        hint = self.lbl_ride_hint.cget("text")
+        if not self.sim_var.get() and not self.fan_ok:
+            hint = ("Ventilátor nepřipojen. " + hint).strip()
+        p = ctrl.power_smoothed
+        self.web.publish({
+            "power": None if p is None else round(p),
+            "power_label": self.t_power["head"].cget("text"),
+            "power_sub": self.t_power["sub"].cget("text"),
+            "power_bad": bool(ctrl.power_gap_s),
+            "hr": ctrl.hr_now,
+            "hr_sub": self.t_hr["sub"].cget("text"),
+            "level": desired,
+            "reason": reason,
+            "auto": self.auto_var.get(),
+            "manual": self.manual_level,
+            "max_level": self.cfg.fan.max_level,
+            "status": status,
+            "status_color": {OK: "ok", BAD: "bad", ACCENT: "accent"}.get(status_col, "faint"),
+            "rx": rx,
+            "hint": hint,
+        })
+
     # ============================================================ smyčka
     def _poll_events(self):
         tree_dirty = False
@@ -959,6 +1133,8 @@ class App:
                     if actual is not None:
                         self.fan_actual = actual
                     self._set_fan_status(text, ok)
+                elif kind == "web_level":  # z mobilu, stejně jako kliknutí na přepínač
+                    self.on_segment(ev[1])
         except queue.Empty:
             pass
         # seznam stačí překreslit max. 2× za s (hodnoty chodí ~4× za s od každého senzoru)
@@ -1114,6 +1290,7 @@ class App:
             self.btn_run.configure(text=want)
         self.lbl_diag_status.configure(text=self.ant_status_full)
         self._update_segment()
+        self._web_publish(desired, reason, text, col)
 
         if now - self._last_hist >= 1.0:
             self._last_hist = now
@@ -1190,6 +1367,7 @@ class App:
             return
         self._cleaned = True
         try:
+            self.web.stop()
             self.fan_worker.stop()
             self.backend.shutdown()
         except Exception:  # noqa: BLE001
