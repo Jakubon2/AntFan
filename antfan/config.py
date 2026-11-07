@@ -36,6 +36,9 @@ class AppConfig:
     web_autostart: bool = False  # ovládání z mobilu zapnout hned po spuštění
     web_port: int = 8686
     web_key: str = ""  # tajná část adresy /m/<klíč>
+    drink_enabled: bool = False  # připomínka pití
+    drink_temp_c: float | None = 20.0  # teplota v místnosti; None = nepočítat
+    drink_interval_min: float = 0.0  # 0 = automaticky
 
 
 def _merge(cls, data: dict):

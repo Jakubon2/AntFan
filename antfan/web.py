@@ -237,6 +237,9 @@ font-size:26px;font-weight:600;touch-action:manipulation;-webkit-tap-highlight-c
 .rx{display:flex;flex-wrap:wrap;gap:6px 16px;color:var(--muted);font-size:15px}
 .rx .bad{color:var(--bad)}
 .hint{color:var(--bad);font-size:15px}
+.drink{display:none;padding:10px 14px;border-radius:12px;background:var(--accent-bg);color:var(--accent);
+font-size:18px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.drink.on{display:block}
 .off{opacity:.45}
 footer{margin-top:auto;color:var(--faint);font-size:13px}
 </style>
@@ -249,6 +252,7 @@ footer{margin-top:auto;color:var(--faint);font-size:13px}
   <div class="tile wide"><div><div class="lab">Ventilátor</div><div class="big" id="f">–</div></div>
     <div class="bars" id="bars"></div><div class="sub" id="fs" style="flex:1;align-self:flex-end"></div></div>
 </main>
+<div class="drink" id="drink"></div>
 <div class="seg" id="seg"></div>
 <div class="rx" id="rx"></div>
 <div class="hint" id="hint"></div>
@@ -257,7 +261,7 @@ footer{margin-top:auto;color:var(--faint);font-size:13px}
 "use strict";
 var base = location.pathname.replace(/\/+$/, "") + "/";
 var $ = function (id) { return document.getElementById(id); };
-var maxLevel = -1, sel = null, pending = null, lastOk = 0;
+var maxLevel = -1, sel = null, pending = null, lastOk = 0, drinkHidden = null;
 var COL = {ok: "var(--ok)", bad: "var(--bad)", accent: "var(--accent)", faint: "var(--faint)"};
 
 function txt(id, v) { var e = $(id); v = v == null ? "" : String(v); if (e.textContent !== v) e.textContent = v; }
@@ -304,6 +308,10 @@ function render(s) {
     rx.appendChild(e);
   });
   txt("hint", s.hint);
+  var d = s.drink, de = $("drink");
+  if (d) txt("drink", d.text);
+  de.classList.toggle("on", !!d && d.id !== drinkHidden);
+  de.dataset.id = d ? String(d.id) : "";
 }
 
 function setLevel(k) {
@@ -328,6 +336,9 @@ function poll() {
     })
     .then(function () { clearTimeout(t); setTimeout(poll, 1000); });
 }
+$("drink").addEventListener("click", function () {
+  drinkHidden = Number(this.dataset.id) || null; this.classList.remove("on");
+});
 poll();
 </script>
 </body>

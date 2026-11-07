@@ -24,7 +24,7 @@ from tkinter import messagebox, ttk
 
 from . import __version__
 from . import config as config_mod
-from . import qr, usb_diag, web
+from . import drink, qr, usb_diag, web
 from .ant_backend import FE_TYPE, HR_TYPE, MAX_CHANNELS, PM_TYPE, AntBackend, FoundDevice, SimulatedBackend
 from .controller import Controller
 from .miio_fan import FanWorker, MiioError, SimulatedFan, XiaomiFan
@@ -196,6 +196,9 @@ class App:
         self.web_error = ""
         self.web_on = self.cfg.web_autostart  # zapíná se tlačítkem Mobil, trvale jen volbou v Nastavení
         self._web_last = 0.0
+        self.drink = drink.DrinkTracker(self.cfg.drink_enabled, self.cfg.drink_temp_c,
+                                        self.cfg.drink_interval_min)  # připomínka pití
+        self._drink_job = None
 
         for d in self.cfg.selected:
             fd = FoundDevice(d[0], d[1], d[2] if len(d) > 2 else 0)
@@ -353,6 +356,7 @@ class App:
         for text, col in (("výkon, W", POWER), ("tep, bpm (60–200)", HR), ("stupeň ventilátoru", FAN)):
             self._lbl(legend, text, fg=col).pack(side="left", padx=(0, 14))
         self._lbl(legend, "posledních 10 min", fg=FAINT).pack(side="right")
+        self._build_drink_strip(r)
         _hline(r)
 
         bottom = tk.Frame(r, bg=BG)
@@ -422,6 +426,7 @@ class App:
                                     ("fan", "Ventilátor", self._page_fan),
                                     ("control", "Řízení", self._page_control),
                                     ("behavior", "Chování", self._page_behavior),
+                                    ("drink", "Pití", self._page_drink),
                                     ("look", "Vzhled", self._page_look),
                                     ("mobile", "Mobil", self._page_mobile),
                                     ("diag", "Diagnostika", self._page_diag)):
@@ -877,6 +882,7 @@ class App:
         self._ant_error = False
         self.controller.reset()
         self.history.clear()
+        self.drink.reset()
         self.backend.start_monitor(devs)
 
     def on_stop(self):
@@ -1121,7 +1127,102 @@ class App:
             "status_color": {OK: "ok", BAD: "bad", ACCENT: "accent"}.get(status_col, "faint"),
             "rx": rx,
             "hint": hint,
+            "drink": None if self.drink.current is None else
+            {"id": self.drink.current.id, "text": self.drink.current.text, "ml": self.drink.current.ml},
         })
+
+    # ============================================================ pití
+    def _build_drink_strip(self, r):
+        # holý rámeček bez obsahu nezabírá místo; pruh se do něj vkládá jen při připomínce
+        self.drink_box = tk.Frame(r, bg=BG)
+        self.drink_box.pack(fill="x", padx=12)
+        self.lbl_drink = tk.Label(self.drink_box, text="", bg=ACCENT_BG, fg=ACCENT, font=self.fonts.body,
+                                  anchor="w", padx=10, pady=4, cursor="hand2")
+        self.lbl_drink.bind("<Button-1>", lambda e: self.on_drink_dismiss())
+        self._drink_shown = None
+
+    def _page_drink(self, p):
+        self._page_head(p, "Pití", "Nenápadná připomínka pod grafem během jízdy. Interval a množství "
+                                   "se řídí délkou jízdy, výkonem a teplotou v místnosti.")
+        self.drink_var = tk.BooleanVar(value=self.cfg.drink_enabled)
+        ttk.Checkbutton(p, text="Připomínat pití", variable=self.drink_var,
+                        command=self._drink_apply).pack(anchor="w")
+        g = tk.Frame(p, bg=BG)
+        g.pack(fill="x", pady=(8, 0))
+        t = self.cfg.drink_temp_c
+        rows = (("Teplota v místnosti", "" if t is None else f"{t:g}", "°C, prázdné = nepočítat", "e_drink_temp"),
+                ("Interval", f"{self.cfg.drink_interval_min:g}" if self.cfg.drink_interval_min else "",
+                 "min, prázdné = automaticky", "e_drink_int"))
+        for i, (label, val, unit, attr) in enumerate(rows):
+            ttk.Label(g, text=label).grid(row=i, column=0, sticky="w", pady=2)
+            e = ttk.Entry(g, width=6, justify="center")
+            e.insert(0, val)
+            e.grid(row=i, column=1, sticky="w", padx=10, pady=2)
+            e.bind("<KeyRelease>", lambda ev: self._drink_schedule())
+            e.bind("<FocusOut>", lambda ev: self._drink_apply())
+            self._lbl(g, unit).grid(row=i, column=2, sticky="w")
+            setattr(self, attr, e)
+        self.lbl_drink_err = self._lbl(p, "", fg=BAD, font=self.fonts.body, anchor="w")
+        self.lbl_drink_err.pack(fill="x", pady=(8, 0))
+        self.lbl_drink_now = self._lbl(p, "", font=self.fonts.body, anchor="w")
+        self.lbl_drink_now.pack(fill="x")
+        self._lbl(p, "Počítá jen během měření, když šlapete. Základ je zhruba 500 ml za hodinu, při vyšším "
+                     "výkonu až 750 ml, nad 22 °C víc. Jen orientační hodnoty, řiďte se i žízní. "
+                     "Připomínka zmizí kliknutím nebo po minutě.",
+                  anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(4, 0))
+
+    def _drink_schedule(self):
+        if self._drink_job is not None:
+            self.root.after_cancel(self._drink_job)
+        self._drink_job = self.root.after(700, self._drink_apply)
+
+    def _drink_apply(self):
+        self._drink_job = None
+        try:
+            if not self.e_drink_temp.winfo_exists():
+                return
+            temp = drink.parse_temp(self.e_drink_temp.get())
+            interval = drink.parse_interval(self.e_drink_int.get())
+        except ValueError as e:
+            self.lbl_drink_err.configure(text=f"Neuloženo: {e}" if "–" in str(e) else "Neuloženo: Zadejte čísla.")
+            return
+        except tk.TclError:
+            return
+        changed = (interval, temp) != (self.cfg.drink_interval_min, self.cfg.drink_temp_c)
+        self.cfg.drink_enabled = self.drink_var.get()
+        self.cfg.drink_temp_c, self.cfg.drink_interval_min = temp, interval
+        config_mod.save(self.cfg)
+        self.lbl_drink_err.configure(text="")
+        d = self.drink
+        d.temp_c, d.manual_min = temp, interval
+        if d.enabled != self.cfg.drink_enabled or changed:
+            d.reschedule()
+        d.enabled = self.cfg.drink_enabled
+
+    def on_drink_dismiss(self):
+        self.drink.dismiss()
+        self._drink_show(None)
+
+    def _drink_show(self, rem):
+        rid = rem.id if rem else None
+        if rid == self._drink_shown:
+            return
+        self._drink_shown = rid
+        if rem is None:
+            self.lbl_drink.pack_forget()
+            self.drink_box.configure(height=1)  # bez potomků by si Tk nechal poslední výšku
+        else:
+            self.lbl_drink.configure(text=rem.text)
+            self.lbl_drink.pack(fill="x", pady=(0, 6))
+
+    def _drink_tick(self, now):
+        ctrl = self.controller
+        rem = self.drink.update(now, self.backend.state == "monitoring", ctrl.power_now,
+                                ctrl.cadence_now, ctrl.hr_now)
+        self._drink_show(rem)
+        txt = ("Teď: " + self.drink.summary()) if self.drink.enabled else ""
+        if self.lbl_drink_now.cget("text") != txt:
+            self.lbl_drink_now.configure(text=txt)
 
     # ============================================================ smyčka
     def _poll_events(self):
@@ -1321,6 +1422,7 @@ class App:
             self.btn_run.configure(text=want)
         self.lbl_diag_status.configure(text=self.ant_status_full)
         self._update_segment()
+        self._drink_tick(now)
         self._web_publish(desired, reason, text, col)
 
         if now - self._last_hist >= 1.0:

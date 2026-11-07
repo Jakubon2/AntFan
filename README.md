@@ -154,6 +154,14 @@ Hodnoty (výkon, tep, stupeň) a přepínač **Auto | Vyp | 1–3** lze mít i n
 - Stránka se obnovuje každou sekundu a řídí se tmavým režimem telefonu. Obrazovku telefonu nechte rozsvícenou.
 - Pro vlastní skripty: `GET /m/<klíč>/api/state` vrací JSON, `POST /m/<klíč>/api/level` s tělem `{"level": "auto"}` nebo `{"level": 2}` přepne stupeň.
 
+## Připomínka pití
+Volitelná, **výchozí je vypnuto**. Zapíná se v Nastavení → Pití. Během jízdy se pod grafem občas objeví tenký pruh „Napijte se · zhruba 150 ml“. Zmizí kliknutím nebo po minutě. Na mobilu se ukáže stejný pruh.
+
+- Počítá jen během měření a když šlapete (výkon nebo kadence nad 0, bez powermetru podle tepu).
+- Základ: každých 15 min, zhruba 500 ml za hodinu. Při vyšším výkonu (kJ za hodinu) až 750 ml/h a interval až 10 min. Nad 22 °C v místnosti víc a častěji. Po hodině jízdy je interval o 10 % kratší.
+- **Teplota v místnosti** (výchozí 20 °C): prázdné pole = teplotu nepočítat. **Interval** v minutách: prázdné = automaticky.
+- Hodnoty jsou jen orientační, nejde o zdravotní doporučení.
+
 ## Řešení problémů
 
 ### „Dongle je připojen k jiné aplikaci“, i když žádná neběží
@@ -197,6 +205,8 @@ antfan/single_instance.py  jen jedna spuštěná instance
 antfan/miio_fan.py      protokol miIO pro Xiaomi ventilátor (bez python-miio)
 antfan/controller.py    výpočet stupně: chytrý režim, % FTP, vyhlazení, hystereze, dofukování
 antfan/web.py           ovládání z mobilu: HTTP server a stránka pro telefon
+antfan/drink.py         připomínka pití: interval a množství podle délky jízdy, výkonu a teploty
 antfan/qr.py            QR kód s adresou pro mobil (bez knihoven)
 antfan/app.py           GUI (tkinter)
+tests/                  unit testy (python -m unittest discover tests)
 ```
