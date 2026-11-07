@@ -96,6 +96,22 @@ Ventilátor jinak pípne při každém příkazu, proto ho AntFan při připojen
 
 ANT+ vysílá všem přijímačům najednou, takže senzory můžou zároveň vysílat do hodinek nebo cyklopočítače. Exkluzivní je jen dongle: v PC ho může používat jen jeden program.
 
+### Najít moje senzory (chytré párování)
+V bytovém domě je vidět víc pásů a powermetrů. **Nastavení → Senzory → Najít moje senzory** to rozhodne samo:
+1. Spustí hledání (20 s) a vyzve vás: zašlapejte a navlhčete pás nebo se ho dotkněte.
+2. Vaše senzory zareagují: výkon nebo kadence vyskočí z 0 a čítač otáček se hýbe, pás začne měřit nebo tep stoupne, Bluetooth senzor se probudí a objeví. Pomůže i síla signálu, vaše senzory bývají blíž.
+3. Senzory, které nereagují, patří nejspíš sousedům. AntFan navrhne pás a výkon (powermetr má přednost před trenažérem, trenažér se stejným ID jako Trenažér i Powermetr vezme jednou). **Použít** výběr uloží.
+
+Když nic nezareaguje, AntFan poradí, co zkusit. Senzory jde vždy vybrat i ručně kliknutím.
+
+### Průvodce souběhem s Rouvy
+Když běží Rouvy, Zwift, TrainerRoad, MyWhoosh a podobné (Windows i macOS), nebo když dongle drží jiný program, ukáže AntFan v okně jízdy nenápadný pruh s doporučením:
+- **Dva dongly:** každý program má svůj, v obou párujte přes ANT+.
+- **Dongle má Rouvy:** AntFan pojede přes Bluetooth. Tlačítko **Přepnout na Bluetooth senzory** vybere BT verze vašich senzorů (pozná je podle ID v názvu, třeba „Tacx Flux 61234“). V Rouvy pak párujte jen přes ANT+.
+- **Dongle má AntFan:** v Rouvy párujte senzory přes Bluetooth.
+
+Trenažér i pás obvykle dovolí jen 1–2 Bluetooth spojení naráz, proto stejný senzor nepřipojujte přes Bluetooth k oběma programům. Pruh se ukáže jednou za spuštění, jde zavřít. Podrobnosti a vypnutí: **Nastavení → Souběh**.
+
 ### Chytrý trenažér a souběh s Rouvy / Zwiftem
 - **Výkon z trenažéru:** AntFan přečte výkon a kadenci i z chytrého trenažéru (ANT+ FE-C, třeba Decathlon). Trenažér jen poslouchá, odpor dál řídí Rouvy nebo Zwift. Když vyberete powermetr i trenažér, má přednost powermetr.
 - **Souběh s Rouvy na jednom PC:** v Rouvy připojte trenažér a pás přes **Bluetooth**, AntFan pak dostane ANT+ dongle pro sebe. Většina trenažérů vysílá ANT+ i během připojení přes Bluetooth, u vašeho modelu to ověří testovací scénář. Druhá možnost je druhý ANT+ dongle jen pro AntFan.
@@ -197,6 +213,9 @@ Ve sloupci **Příjem** je vidět, kolik % zpráv od senzoru za posledních 5 s 
 ```
 antfan/ant_backend.py   ANT+ vyhledávání (continuous scan) a měření tepu, powermetru a trenažéru (openant)
 antfan/ble_backend.py   Bluetooth senzory (bleak) a kombinovaný backend ANT+ a Bluetooth
+antfan/pairing.py       chytré párování: které senzory zareagovaly (bez GUI)
+antfan/coexist.py       průvodce souběhem s Rouvy/Zwiftem: detekce aplikací a doporučení
+antfan/pairing_ui.py    GUI párování a průvodce (mixin pro App)
 antfan/selftest.py      kontrola sestaveného exe (--selftest)
 antfan/rx.py            příjem ze senzoru: dekódování výkonu, kvalita signálu, diagnostika do logu
 antfan/usb_diag.py      diagnostika obsazeného donglu, USB reset, oprava úniku v openant

@@ -33,6 +33,7 @@ class AppConfig:
     simulation: bool = False
     auto_mode: bool = True
     theme: str = "system"  # light | dark | system
+    coexist_guide: bool = True  # průvodce souběhem s Rouvy/Zwift (coexist.py)
 
 
 def _merge(cls, data: dict):

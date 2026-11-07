@@ -57,6 +57,11 @@ class FoundDevice:
     trans_type: int = 0
     last_value: int | None = None
     last_seen: float = 0.0
+    # jen při hledání (chytré párování, pairing.py): kadence, čítač událostí, síla signálu, název
+    cadence: int | None = None
+    events: int | None = None
+    rssi: int | None = None
+    name: str = ""
 
     @property
     def key(self) -> tuple[int, int]:
@@ -347,10 +352,17 @@ class AntBackend:
                 value = None
                 if dev_type == HR_TYPE:
                     value = data[7]
+                    dev.events = data[6]  # čítač tepů
                 elif dev_type == PM_TYPE and data[0] == 0x10:
                     value = data[6] | (data[7] << 8)
+                    dev.events, dev.cadence = data[1], (data[3] if data[3] != 0xFF else None)
                 elif dev_type == FE_TYPE and data[0] == 0x19:
                     value = data[5] | ((data[6] & 0x0F) << 8)
+                    dev.events, dev.cadence = data[1], (data[2] if data[2] != 0xFF else None)
+                # RSSI z ext. zprávy (LIB_CONFIG 0x40): příznak, ID kanálu, typ měření, RSSI
+                if len(data) >= 15 and data[8] & 0x40 and data[8] & 0x80:
+                    r = data[14]
+                    dev.rssi = r - 256 if r > 127 else r
                 now = time.monotonic()
                 if value is not None:
                     dev.last_value = value
@@ -366,6 +378,12 @@ class AntBackend:
         ch.on_acknowledge_data = on_data
         ch.set_id(0, 0, 0)
         ch.enable_extended_messages(1)
+        try:  # k ID kanálu i RSSI (pro chytré párování); starší dongle to ignorují
+            from openant.base.message import Message
+
+            node.ant.write_message(Message(Message.ID.LIB_CONFIG, [0x00, 0xC0]))
+        except Exception as e:  # noqa: BLE001
+            log.info("RSSI v ext. zprávách nejde zapnout: %r", e)
         ch.set_rf_freq(57)
         ch.open_rx_scan_mode()
         self.state = "scanning"
@@ -442,12 +460,18 @@ class AntBackend:
 class SimulatedBackend:
     """Falešný dongle pro vyzkoušení programu bez hardwaru."""
 
+    # vlastní kolo: pás 23456, powermetr 41001, trenažér 61234 (vysílá FE i PM se stejným ID);
+    # soused: pás 31337 (stále stejný tep) a powermetr 52777 (šlape celou dobu)
     SIM_DEVICES = [
         FoundDevice(23456, HR_TYPE, 1),
         FoundDevice(41001, PM_TYPE, 5),
         FoundDevice(31337, HR_TYPE, 1),
         FoundDevice(61234, FE_TYPE, 5),
+        FoundDevice(61234, PM_TYPE, 5),
+        FoundDevice(52777, PM_TYPE, 5),
     ]
+    SIM_NEIGHBOR = {31337, 52777}
+    SIM_REACT_S = 4.0  # po kolika s hledání „jezdec zašlape a navlhčí pás“
 
     def __init__(self, events: "queue.Queue"):
         self.events = events
@@ -466,6 +490,22 @@ class SimulatedBackend:
     def _alive(self, gen) -> bool:
         return self._gen == gen
 
+    @classmethod
+    def sim_scan_sample(cls, d: FoundDevice, el: float, ev: int) -> FoundDevice:
+        """Hodnota senzoru v čase el od začátku hledání (vlastní reagují po SIM_REACT_S)."""
+        mine = d.device_id not in cls.SIM_NEIGHBOR
+        active = not mine or el >= cls.SIM_REACT_S
+        if base_type(d.device_type) == HR_TYPE:
+            val = (95 + int(el)) if mine else 141 + random.randint(-1, 1)
+            if not active:
+                val = 0  # pás bez kontaktu
+            return FoundDevice(d.device_id, d.device_type, d.trans_type, val, time.monotonic(),
+                               events=ev & 0xFF, rssi=-48 if mine else -77)
+        val = 180 + random.randint(-20, 20) if active else 0
+        return FoundDevice(d.device_id, d.device_type, d.trans_type, val, time.monotonic(),
+                           cadence=(85 + random.randint(-3, 3)) if active else 0,
+                           events=(ev if active else 0) & 0xFF, rssi=-52 if mine else -74)
+
     def start_scan(self, duration: float) -> None:
         gen = self._new_gen()
         self.state = "scanning"
@@ -473,13 +513,14 @@ class SimulatedBackend:
 
         def run():
             t0 = time.monotonic()
+            ev = 0
             while self._alive(gen) and time.monotonic() - t0 < duration:
                 el = time.monotonic() - t0
+                ev += 1
                 for i, d in enumerate(self.SIM_DEVICES):
-                    if el > 0.8 + i * 1.2:
-                        val = 130 + random.randint(-3, 3) if d.device_type == HR_TYPE else 180 + random.randint(-20, 20)
-                        self.events.put(("found", FoundDevice(d.device_id, d.device_type, d.trans_type, val, time.monotonic())))
-                time.sleep(0.7)
+                    if el > 0.3 + i * 0.3:
+                        self.events.put(("found", self.sim_scan_sample(d, el, ev)))
+                time.sleep(0.5)
             if self._alive(gen):
                 self.state = "idle"
                 self._status(f"[SIMULACE] Vyhledávání dokončeno – nalezeno {len(self.SIM_DEVICES)} senzorů")

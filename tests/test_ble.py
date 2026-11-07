@@ -279,7 +279,7 @@ class Simulation(unittest.TestCase):
                     found.add(ev[1].key)
                 done = ev[0] == "scan_done"
             self.assertTrue(done)
-            self.assertIn((52011, BLE_HR_TYPE), found)
+            self.assertTrue(any(is_ble(k[1]) for k in found))
             self.assertTrue(any(not is_ble(k[1]) for k in found))
             b.start_monitor([FoundDevice(52011, BLE_HR_TYPE), FoundDevice(41001, PM_TYPE)])
             kinds = set()

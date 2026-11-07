@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import random
 import statistics
@@ -445,6 +446,9 @@ class BleBackend:
                         d = seen[key] = FoundDevice(dev_id, t, 0)
                         log.info("Nalezen %s #%s (%s, %s, RSSI %s)", d.type_name, dev_id, name,
                                  device.address, adv.rssi)
+                    d.name = name or d.name
+                    if adv.rssi is not None:
+                        d.rssi = adv.rssi
                     if now - d.last_seen > 0.5:
                         d.last_seen = now
                         self.events.put(("found", FoundDevice(**d.__dict__)))
@@ -604,9 +608,19 @@ class BleBackend:
 
 
 class SimulatedBleBackend:
-    """Falešný BT tepový pás pro simulaci."""
+    """Falešné BT senzory pro simulaci.
 
-    SIM_DEVICES = [FoundDevice(52011, BLE_HR_TYPE, 0)]
+    Vlastní: pás (BT verze ANT+ pásu 23456) a trenažér (BT verze 61234, FTMS
+    i Cycling Power), objeví se až po „zašlápnutí“ (SimulatedBackend.SIM_REACT_S).
+    Sousedův pás je vidět od začátku a má slabý signál.
+    """
+
+    SIM_DEVICES = [
+        (FoundDevice(52011, BLE_HR_TYPE, 0, name="HRM-Dual 23456"), True),
+        (FoundDevice(52012, BLE_FE_TYPE, 0, name="Tacx Flux 61234"), True),
+        (FoundDevice(52012, BLE_PM_TYPE, 0, name="Tacx Flux 61234"), True),
+        (FoundDevice(52013, BLE_HR_TYPE, 0, name="Polar H10 8C2F"), False),
+    ]
 
     def __init__(self, events):
         self.events = events
@@ -625,10 +639,12 @@ class SimulatedBleBackend:
         def run():
             t0 = time.monotonic()
             while self._alive(gen) and time.monotonic() - t0 < duration:
-                if time.monotonic() - t0 > 1.5:
-                    for d in self.SIM_DEVICES:
-                        self.events.put(("found", FoundDevice(d.device_id, d.device_type, 0, None,
-                                                              time.monotonic())))
+                el = time.monotonic() - t0
+                for d, mine in self.SIM_DEVICES:
+                    if el > (SimulatedBackend.SIM_REACT_S + 0.5 if mine else 0.8):
+                        self.events.put(("found", FoundDevice(
+                            d.device_id, d.device_type, 0, None, time.monotonic(),
+                            rssi=-55 if mine else -82, name=d.name)))
                 time.sleep(0.7)
             if self._alive(gen):
                 self.state = "idle"
@@ -648,14 +664,18 @@ class SimulatedBleBackend:
 
         def run():
             hr = 100.0
+            t0 = time.monotonic()
             while self._alive(gen):
                 hr += random.gauss(0, 0.8) + (130 - hr) * 0.02
+                power = int(max(0, 190 + 90 * math.sin((time.monotonic() - t0) / 14)))
                 for d in devices:
                     if random.random() < 0.05:
                         continue
                     self._rx[d.key].on_notify(time.monotonic())
                     if d.device_type == BLE_HR_TYPE:
                         self.events.put(("value", d.key, "hr", int(hr), None))
+                    else:
+                        self.events.put(("value", d.key, "power", power, 85))
                 time.sleep(1.0)
 
         threading.Thread(target=run, daemon=True).start()

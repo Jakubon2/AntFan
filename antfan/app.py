@@ -29,6 +29,7 @@ from .ant_backend import FE_TYPE, HR_TYPE, MAX_CHANNELS, PM_TYPE, FoundDevice, b
 from .ble_backend import make_backend
 from .controller import Controller
 from .miio_fan import FanWorker, MiioError, SimulatedFan, XiaomiFan
+from .pairing_ui import PairingUi
 from .single_instance import SingleInstance
 
 log = logging.getLogger("antfan")
@@ -174,7 +175,7 @@ def _hline(parent):
     tk.Frame(parent, height=1, bg=BORDER).pack(fill="x")
 
 
-class App:
+class App(PairingUi):
     def __init__(self, root: tk.Tk):
         self.root = root
         self.cfg = config_mod.load()
@@ -193,6 +194,7 @@ class App:
         self.fan_status_text, self.fan_ok = "nepřipojeno", False
         self._apply_job = None
         self._last_bars = None
+        self._pair_init()
 
         for d in self.cfg.selected:
             fd = FoundDevice(d[0], d[1], d[2] if len(d) > 2 else 0)
@@ -234,6 +236,7 @@ class App:
         root.after(250, self._tick)
         if not self.selected:  # první spuštění: rovnou výběr senzorů
             root.after(300, lambda: self.open_settings("sensors"))
+        root.after(3000, self._coex_start)
 
     # ================================================================ vzhled
     def _want_dark(self) -> bool:
@@ -359,6 +362,7 @@ class App:
         self.lbl_ride_hint.pack(fill="x", padx=16, pady=(0, 10))
         r.bind("<Configure>", lambda e: self.lbl_ride_hint.configure(
             wraplength=max(200, r.winfo_width() - 40)))
+        self._build_coex_bar(r)
         self._update_segment()
 
     def _tile(self, parent, col, title, unit, color, bars=False):
@@ -415,6 +419,7 @@ class App:
                                     ("control", "Řízení", self._page_control),
                                     ("behavior", "Chování", self._page_behavior),
                                     ("look", "Vzhled", self._page_look),
+                                    ("coexist", "Souběh", self._page_coexist),
                                     ("diag", "Diagnostika", self._page_diag)):
             lb = tk.Label(nav, text=title, bg=SURFACE, fg=MUTED, font=self.fonts.body, anchor="w",
                           padx=14, pady=6, width=14, cursor="hand2")
@@ -464,6 +469,7 @@ class App:
         row = tk.Frame(p, bg=BG)
         row.pack(fill="x", pady=(0, 8))
         ttk.Button(row, text="Hledat senzory", command=self.on_scan).pack(side="left")
+        ttk.Button(row, text="Najít moje senzory", command=self.on_pair).pack(side="left", padx=(6, 0))
         self.lbl_scan = self._lbl(row, "", font=self.fonts.body)
         self.lbl_scan.pack(side="left", padx=10)
         cols = ("sel", "type", "id", "value", "rx")
@@ -474,6 +480,7 @@ class App:
             self.tree.column(c, width=int(wd * self.px), anchor="center" if c != "type" else "w")
         self.tree.tag_configure("weak", foreground=BAD)
         self.tree.pack(fill="x")
+        self._build_pair_box(p, before=self.tree)
         self.tree.bind("<Button-1>", self.on_tree_click)
         self.lbl_sensor_hint = self._lbl(p, "", fg=BAD, font=self.fonts.body, justify="left",
                                          anchor="w", wraplength=int(440 * self.px))
@@ -937,6 +944,7 @@ class App:
                 elif kind == "ant_error":
                     self._ant_error = True
                     self.ant_status_full = ev[1]
+                    self._coex_on_error(ev[1])
                     messagebox.showerror("ANT+", ev[1])
                 elif kind == "found":
                     d: FoundDevice = ev[1]
@@ -944,6 +952,7 @@ class App:
                     if old is not None and d.trans_type == 0:
                         d.trans_type = old.trans_type
                     self.devices[d.key] = d
+                    self._pair_feed(d)
                     if d.last_value is not None:
                         self.dev_values[d.key] = (time.monotonic(), d.last_value)
                     tree_dirty = True
@@ -959,6 +968,9 @@ class App:
                     tree_dirty = True
                 elif kind == "scan_done":
                     tree_dirty = True
+                    self._on_scan_done()
+                elif kind == "coex":
+                    self._coex_on_event(ev[1])
                 elif kind == "fan":
                     _, ok, text, actual = ev
                     if actual is not None:
