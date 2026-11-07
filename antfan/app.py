@@ -1389,6 +1389,13 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
 
     # ============================================================ smyčka
     def _poll_events(self):
+        try:
+            self._poll_events_body()
+        except Exception:  # noqa: BLE001 - jedna chyba nesmí zastavit zpracování událostí
+            log.exception("Chyba při zpracování událostí")
+        self.root.after(100, self._poll_events)
+
+    def _poll_events_body(self):
         tree_dirty = False
         try:
             while True:
@@ -1447,7 +1454,6 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         if tree_dirty and time.monotonic() - getattr(self, "_last_tree", 0.0) >= 0.5:
             self._last_tree = time.monotonic()
             self._refresh_tree()
-        self.root.after(100, self._poll_events)
 
     def _refresh_tree(self):
         now = time.monotonic()
@@ -1561,6 +1567,13 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         return r
 
     def _tick(self):
+        try:
+            self._tick_body()
+        except Exception:  # noqa: BLE001 - jedna chyba nesmí zastavit celé řízení
+            log.exception("Chyba v hlavní smyčce")
+        self.root.after(250, self._tick)
+
+    def _tick_body(self):
         now = time.monotonic()
         ctrl = self.controller
         auto_level = ctrl.tick(now)
@@ -1585,7 +1598,9 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         self.t_hr["big"].configure(text="–" if ctrl.hr_now is None else str(ctrl.hr_now))
         self.t_hr["sub"].configure(text="" if ctrl.hr_now is None or not c.hr_max else
                                    f"{ctrl.hr_now / c.hr_max * 100:.0f} % max")
-        if not vitr_ui.update_fan_tile(self, desired):  # výstup v % kreslí vitr_ui
+        if vitr_ui.update_fan_tile(self, desired):  # výstup v % kreslí vitr_ui
+            reason = self.t_fan["sub"].cget("text")
+        else:
             self.t_fan["big"].configure(text="Vyp" if desired == 0 else str(desired))
             self._draw_bars(desired)
             reason = self._reason_text(ctrl, desired)
@@ -1617,7 +1632,6 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
             self._ride_tick(now)
             self._draw_chart()
             self._refresh_tree()
-        self.root.after(250, self._tick)
 
     def _draw_chart(self):
         cv = self.canvas
