@@ -111,6 +111,9 @@ ANT+ vysílá všem přijímačům najednou, takže senzory můžou zároveň vy
   - Čtení z donglu má vysokou prioritu, takže se zprávy neztrácejí, ani když Rouvy vytěžuje počítač.
 - **Tepový pás Polar:** ANT+ umí Polar H9. Polar H10 vysílá jen Bluetooth, takže ho AntFan přes ANT+ neuvidí.
 
+### Baterie senzorů
+Sloupec **Baterie** v Nastavení → Senzory ukazuje procenta (tepový pás, pokud je posílá) nebo stav nová / dobrá / OK / slabá / kritická. Slabá baterie je červeně a v okně jízdy u příjmu senzoru je „· slabá baterie“. Když baterie klesne pod hranici, ukáže se v okně jízdy jednou za spuštění pruh s upozorněním. Zapnutí a hranice (slabá / kritická, u senzorů s procenty pod 20 %) jsou v Nastavení → Senzory. Senzory posílají stav baterie zhruba jednou za minutu, údaj se proto objeví až chvíli po spuštění měření.
+
 ## Řízení ventilátoru
 Přepínač dole v okně: **Auto** řídí ventilátor podle pravidel, **Vyp/1/2/3** nastaví stupeň ručně. Všechno ostatní je v okně **Nastavení** a ukládá se hned. Tmavý motiv: **Nastavení → Vzhled** (Světlý / Tmavý / Podle systému).
 
@@ -180,9 +183,12 @@ Ve sloupci **Příjem** je vidět, kolik % zpráv od senzoru za posledních 5 s 
 antfan/ant_backend.py   ANT+ vyhledávání (continuous scan) a měření tepu, powermetru a trenažéru (openant)
 antfan/selftest.py      kontrola sestaveného exe (--selftest)
 antfan/rx.py            příjem ze senzoru: dekódování výkonu, kvalita signálu, diagnostika do logu
+antfan/battery.py       stav baterie (stránka 0x52, u tepového pásu stránka 7)
+antfan/battery_ui.py    baterie v GUI: sloupec, upozornění v okně jízdy, volby
 antfan/usb_diag.py      diagnostika obsazeného donglu, USB reset, oprava úniku v openant
 antfan/single_instance.py  jen jedna spuštěná instance
 antfan/miio_fan.py      protokol miIO pro Xiaomi ventilátor (bez python-miio)
 antfan/controller.py    výpočet stupně: chytrý režim, % FTP, vyhlazení, hystereze, dofukování
 antfan/app.py           GUI (tkinter)
+tests/                  unit testy (python -m unittest discover tests)
 ```

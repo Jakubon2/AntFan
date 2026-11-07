@@ -14,6 +14,7 @@ Do GUI posílá události přes queue.Queue:
   ("value", (id, typ), kind, value, cadence)   kind = "hr" | "power"
       – výkon chodí s každou přijatou zprávou (~4× za s), 0 W = nešlape se
   ("scan_done",)
+  ("battery", (id, typ), pct | None, stav | None)  – jen při změně (battery.py)
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ import time
 from dataclasses import dataclass
 
 from . import usb_diag
+from .battery import BatteryTracker, page_common, page_hr
 from .rx import GapClassifier, RxMonitor
 
 log = logging.getLogger("antfan.ant")
@@ -82,6 +84,7 @@ class AntBackend:
         self._last_monitor: list | None = None
         self._rx: dict[tuple[int, int], RxMonitor] = {}
         self._gaps = GapClassifier()
+        self._batt = BatteryTracker()
         self._unplug_check = 0.0
         self.state = "idle"
         self._thread = threading.Thread(target=self._worker, name="ant", daemon=True)
@@ -279,6 +282,9 @@ class AntBackend:
                 try:
                     handle(data)
                     self._gaps.after_page(mon, list(self._rx.values()))
+                    bev = self._batt.feed(mon.key, data)
+                    if bev is not None:
+                        self.events.put(bev)
                 except Exception:  # noqa: BLE001
                     log.exception("Chyba při zpracování zprávy %s", label)
                 try:
@@ -484,9 +490,11 @@ class SimulatedBackend:
         self._rx = {d.key: RxMonitor(d.device_id, d.device_type, t_start) for d in devices}
         self._gaps = GapClassifier()
         rx = self._rx
+        batt = BatteryTracker()
 
         def run():
             t0 = time.monotonic()
+            last_batt = -1e9
             hr = 95.0
             ev = 0
             while self._alive(gen):
@@ -504,6 +512,19 @@ class SimulatedBackend:
                 hr += (target_hr - hr) * 0.03
                 # simulace rádia: ~3 % ztracených zpráv a každých 75 s výpadek 4 s
                 radio_gap = 40 <= t % 75 < 44
+                # baterie: každé 4 s; trenažér po 15 s klesne na „slabá“
+                if now - last_batt >= 4.0:
+                    last_batt = now
+                    for i, d in enumerate(devices):
+                        if d.device_type == HR_TYPE:
+                            page = page_hr(85 - 30 * i, 2, 2.9, int(hr))
+                        elif d.device_type == FE_TYPE:
+                            page = page_common(4 if t >= 15 else 3, 3.4 if t >= 15 else 3.7)
+                        else:
+                            page = page_common(2, 3.0)
+                        bev = batt.feed(d.key, page)
+                        if bev is not None:
+                            self.events.put(bev)
                 for d in devices:
                     if random.random() < 0.03:
                         continue

@@ -33,6 +33,9 @@ class AppConfig:
     simulation: bool = False
     auto_mode: bool = True
     theme: str = "system"  # light | dark | system
+    battery_warn: bool = True
+    battery_warn_level: int = 4  # 4 = slabá, 5 = kritická (senzory bez %)
+    battery_warn_pct: int = 20   # senzory, které posílají %
 
 
 def _merge(cls, data: dict):
