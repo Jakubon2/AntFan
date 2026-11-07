@@ -70,6 +70,7 @@ class AppConfig:
     def control(self, value: ControlConfig) -> None:
         self.control  # noqa: B018 – zajistí platný aktivní profil
         self.profiles[self.active_profile] = value
+    coexist_guide: bool = True  # průvodce souběhem s Rouvy/Zwift (coexist.py)
 
 
 def _merge(cls, data: dict):

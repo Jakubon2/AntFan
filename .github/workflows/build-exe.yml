@@ -34,6 +34,7 @@ jobs:
         run: >
           pyinstaller --noconfirm --onefile --windowed --name AntFan
           --collect-all libusb_package --collect-submodules openant
+          --collect-all bleak --collect-all winrt
           AntFan.pyw
 
       - name: Kontrola exe (selftest)

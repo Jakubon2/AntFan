@@ -2,7 +2,7 @@
 (macOS: `AntFan.app/Contents/MacOS/AntFan --selftest výsledek.txt`).
 
 Ověří, že do exe se dostalo všechno potřebné (openant, pyusb + libusb DLL,
-cryptography, tkinter) a že platí naše opravy openant. Nic neotvírá,
+cryptography, tkinter, bleak) a že platí naše opravy openant. Nic neotvírá,
 dongle ani ventilátor nepotřebuje. Návratový kód 0 = v pořádku.
 """
 from __future__ import annotations
@@ -88,6 +88,23 @@ def run(out_path: str | None = None) -> int:
         finally:
             srv.stop()
         return "server a QR kód"
+    def t_ble():
+        import bleak
+
+        from . import ble_backend
+
+        assert ble_backend.HAVE_BLEAK, "ble_backend nenašel bleak"
+        if sys.platform == "win32":
+            # WinRT moduly, které bleak na Windows potřebuje (PyInstaller je musí přibalit)
+            from bleak.backends.winrt import client, scanner  # noqa: F401
+
+            bleak.BleakScanner()  # jen vytvoří objekt, adaptér neotvírá
+        try:
+            from importlib.metadata import version
+
+            return f"bleak {version('bleak')}"
+        except Exception:  # noqa: BLE001
+            return "bleak"
 
     def t_app():
         from . import app  # noqa: F401
@@ -99,6 +116,7 @@ def run(out_path: str | None = None) -> int:
     check("šifrování miIO", t_crypto)
     check("ventilátory", t_fans)
     check("web pro mobil", t_web)
+    check("Bluetooth (bleak)", t_ble)
     check("aplikace", t_app)
     lines.append("VÝSLEDEK: " + ("v pořádku" if ok else "CHYBA"))
     text = "\n".join(lines)

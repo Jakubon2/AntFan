@@ -187,6 +187,27 @@ Nastavení: přepínač **Auto**, *Nastavení → Řízení* → **Chytře**, pr
 
 ---
 
+## G. Bluetooth senzory (10 min, volitelné)
+Potřebujete pás nebo powermetr/trenažér s Bluetooth. Senzor nesmí být zrovna připojený přes Bluetooth k Rouvy, mobilu ani hodinkám.
+
+**G1 – hledání bez donglu**
+- **K:** Vytáhněte ANT+ dongle a dejte Hledat senzory.
+- **O:** Neobjeví se chyba, hledání skončí textem „(ANT+ dongle nezapojen)“ a v seznamu je senzor s **(BT)**.
+
+**G2 – měření přes Bluetooth**
+- **K:** Vyberte senzor (BT) a dejte Spustit měření.
+- **O:** Do 20 s se ukáže tep nebo výkon (u powermetru i kadence), Příjem kolem 90–100 %.
+
+**G3 – ztráta spojení**
+- **K:** Za měření senzor odneste z dosahu (nebo pás sundejte) na 30 s a vraťte.
+- **O:** Hodnota zmizí, v Diagnostice je „spojení ztraceno, připojuji znovu…“ a do 30 s po návratu měří znovu sám.
+
+**G4 – ANT+ a Bluetooth zároveň**
+- **K:** Zapojte dongle, vyberte ANT+ senzor a jiný senzor (BT), spusťte měření.
+- **O:** Měří oba. Když za běhu vytáhnete dongle, Bluetooth senzor měří dál.
+
+---
+
 ## Co poslat, když něco nefunguje
 1. Číslo testu a co se stalo místo očekávaného výsledku.
 2. Soubor `%APPDATA%\AntFan\antfan.log`.

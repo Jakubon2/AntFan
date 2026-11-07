@@ -495,9 +495,11 @@ def busy_message(apps: list[str], antfans: list[int]) -> str:
         lines += ["", "Jeden dongle může mít v jednu chvíli jen jeden program. AntFan ho "
                   "druhému programu nebere, aby mu nerozbil spojení. Možnosti:",
                   "  1. Druhý ANT+ dongle – AntFan si sám vezme ten volný (nejspolehlivější).",
-                  "  2. Spustit nejdřív AntFan a „Spustit měření“, až potom Rouvy/Zwift "
+                  "  2. Nechat dongle tomu programu a AntFan přepnout na Bluetooth senzory "
+                  "(pruh v okně jízdy nebo Nastavení → Souběh).",
+                  "  3. Spustit nejdřív AntFan a „Spustit měření“, až potom Rouvy/Zwift "
                   "a v něm párovat senzory jen přes Bluetooth.",
-                  "  3. Ukončit ten program – " + (
+                  "  4. Ukončit ten program – " + (
                       "zkontrolujte i ikonky v horní liště (Zwift Launcher a Garmin Express "
                       "běží na pozadí i po zavření okna)." if sys.platform == "darwin" else
                       "zkontrolujte i ikonky u hodin (Zwift Launcher a "

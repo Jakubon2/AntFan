@@ -25,12 +25,14 @@ from tkinter import messagebox, ttk
 from . import __version__
 from . import config as config_mod
 from . import drink, overlay, qr, usb_diag, web
-from .ant_backend import FE_TYPE, HR_TYPE, MAX_CHANNELS, PM_TYPE, AntBackend, FoundDevice, SimulatedBackend
+from .ant_backend import FE_TYPE, HR_TYPE, MAX_CHANNELS, PM_TYPE, AntBackend, FoundDevice, SimulatedBackend, base_type
+from .ble_backend import make_backend
 from .controller import Controller
 from .fans import FanError, HomeAssistantFan, ShellyFan
 from .miio_fan import FanWorker, MiioError, SimulatedFan, XiaomiFan
 from .profiles import ProfilesMixin
 from .ride_ui import RideMixin
+from .pairing_ui import PairingUi
 from .single_instance import SingleInstance
 from . import vitr_ui
 
@@ -186,7 +188,7 @@ def _hline(parent):
     tk.Frame(parent, height=1, bg=BORDER).pack(fill="x")
 
 
-class App(ProfilesMixin, RideMixin):
+class App(ProfilesMixin, RideMixin, PairingUi):
     def __init__(self, root: tk.Tk):
         self.root = root
         self.cfg = config_mod.load()
@@ -214,6 +216,7 @@ class App(ProfilesMixin, RideMixin):
         self._drink_job = None
         self.overlay = overlay.Overlay(self)  # lišta navrchu; okno se staví znovu po _rebuild_ui
         self.overlay_var = tk.BooleanVar(value=self.cfg.overlay_enabled)
+        self._pair_init()
 
         for d in self.cfg.selected:
             fd = FoundDevice(d[0], d[1], d[2] if len(d) > 2 else 0)
@@ -257,6 +260,7 @@ class App(ProfilesMixin, RideMixin):
         root.after(250, self._tick)
         if not self.selected:  # první spuštění: rovnou výběr senzorů
             root.after(300, lambda: self.open_settings("sensors"))
+        root.after(3000, self._coex_start)
 
     # ================================================================ vzhled
     def _want_dark(self) -> bool:
@@ -392,6 +396,7 @@ class App(ProfilesMixin, RideMixin):
         self.lbl_ride_hint.pack(fill="x", padx=16, pady=(0, 10))
         r.bind("<Configure>", lambda e: self.lbl_ride_hint.configure(
             wraplength=max(200, r.winfo_width() - 40)))
+        self._build_coex_bar(r)
         self._update_segment()
 
     def _tile(self, parent, col, title, unit, color, bars=False):
@@ -451,6 +456,7 @@ class App(ProfilesMixin, RideMixin):
                                     ("look", "Vzhled", self._page_look),
                                     ("mobile", "Mobil", self._page_mobile),
                                     ("rides", "Jízdy", self._page_rides),
+                                    ("coexist", "Souběh", self._page_coexist),
                                     ("diag", "Diagnostika", self._page_diag)):
             lb = tk.Label(nav, text=title, bg=SURFACE, fg=MUTED, font=self.fonts.body, anchor="w",
                           padx=14, pady=6, width=14, cursor="hand2")
@@ -500,6 +506,7 @@ class App(ProfilesMixin, RideMixin):
         row = tk.Frame(p, bg=BG)
         row.pack(fill="x", pady=(0, 8))
         ttk.Button(row, text="Hledat senzory", command=self.on_scan).pack(side="left")
+        ttk.Button(row, text="Najít moje senzory", command=self.on_pair).pack(side="left", padx=(6, 0))
         self.lbl_scan = self._lbl(row, "", font=self.fonts.body)
         self.lbl_scan.pack(side="left", padx=10)
         cols = ("sel", "type", "id", "value", "rx")
@@ -510,12 +517,17 @@ class App(ProfilesMixin, RideMixin):
             self.tree.column(c, width=int(wd * self.px), anchor="center" if c != "type" else "w")
         self.tree.tag_configure("weak", foreground=BAD)
         self.tree.pack(fill="x")
+        self._build_pair_box(p, before=self.tree)
         self.tree.bind("<Button-1>", self.on_tree_click)
         self.lbl_sensor_hint = self._lbl(p, "", fg=BAD, font=self.fonts.body, justify="left",
                                          anchor="w", wraplength=int(440 * self.px))
         self.lbl_sensor_hint.pack(fill="x", pady=(8, 0))
         self._lbl(p, f"Najednou nejvýš {MAX_CHANNELS} senzorů. Trenažér vysílá výkon jako Trenažér "
                      "i jako Powermetr se stejným ID, stačí vybrat jeden.",
+                  anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(6, 0))
+        self._lbl(p, "Senzory (BT) jdou přes Bluetooth. Bluetooth senzor často dovolí jen 1–2 spojení "
+                     "najednou, s Rouvy na Bluetooth se mohou přetahovat. Umí-li senzor i ANT+, "
+                     "připojte ho jedním z programů přes ANT+.",
                   anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(6, 0))
 
     # --- Ventilátor
@@ -946,7 +958,7 @@ class App(ProfilesMixin, RideMixin):
                 self.backend.shutdown()
             except Exception:  # noqa: BLE001
                 log.exception("shutdown")
-        self.backend = SimulatedBackend(self.events) if self.sim_var.get() else AntBackend(self.events)
+        self.backend = make_backend(self.events, simulation=self.sim_var.get())
 
     def _fan_driver(self, f):
         """Vytvoří ovladač podle typu; vyhodí výjimku s hláškou pro uživatele."""
@@ -1377,6 +1389,7 @@ class App(ProfilesMixin, RideMixin):
                 elif kind == "ant_error":
                     self._ant_error = True
                     self.ant_status_full = ev[1]
+                    self._coex_on_error(ev[1])
                     messagebox.showerror("ANT+", ev[1])
                 elif kind == "found":
                     d: FoundDevice = ev[1]
@@ -1384,6 +1397,7 @@ class App(ProfilesMixin, RideMixin):
                     if old is not None and d.trans_type == 0:
                         d.trans_type = old.trans_type
                     self.devices[d.key] = d
+                    self._pair_feed(d)
                     if d.last_value is not None:
                         self.dev_values[d.key] = (time.monotonic(), d.last_value)
                     tree_dirty = True
@@ -1394,14 +1408,17 @@ class App(ProfilesMixin, RideMixin):
                         self.controller.feed(vkind, value)
                         continue
                     self.dev_values[key] = (now, value)
-                    if key[1] == PM_TYPE:
+                    if base_type(key[1]) == PM_TYPE:
                         self._last_pm_value = now
                     # powermetr má přednost před trenažérem (je přesnější)
-                    if not (key[1] == FE_TYPE and now - self._last_pm_value < 3.0):
+                    if not (base_type(key[1]) == FE_TYPE and now - self._last_pm_value < 3.0):
                         self.controller.feed(vkind, value, cad)
                     tree_dirty = True
                 elif kind == "scan_done":
                     tree_dirty = True
+                    self._on_scan_done()
+                elif kind == "coex":
+                    self._coex_on_event(ev[1])
                 elif kind == "fan":
                     _, ok, text, actual = ev
                     if actual is not None:
@@ -1425,12 +1442,13 @@ class App(ProfilesMixin, RideMixin):
         except Exception:  # noqa: BLE001
             rxq = {}
         weak = []
-        order = sorted(self.devices.values(), key=lambda d: (d.key not in self.selected, d.device_type != HR_TYPE, d.device_id))
+        order = sorted(self.devices.values(), key=lambda d: (d.key not in self.selected, base_type(d.device_type) != HR_TYPE,
+                                                        d.device_type, d.device_id))
         for idx, d in enumerate(order):
             iid = f"{d.device_id}:{d.device_type}"
             tv = self.dev_values.get(d.key)
             if tv and now - tv[0] < 5:
-                unit = "bpm" if d.device_type == HR_TYPE else "W"
+                unit = "bpm" if base_type(d.device_type) == HR_TYPE else "W"
                 val = f"{tv[1]} {unit}"
             else:
                 val = "–"
@@ -1706,6 +1724,10 @@ def main():
 
         i = sys.argv.index("--selftest")
         sys.exit(run(sys.argv[i + 1] if len(sys.argv) > i + 1 else None))
+    if "--ble-probe" in sys.argv:  # macOS: zkouška oprávnění k Bluetooth (ble_backend)
+        from .ble_backend import probe_main
+
+        sys.exit(probe_main())
     setup_logging()
     try:
         from ctypes import windll  # ostré písmo na Windows s HiDPI
