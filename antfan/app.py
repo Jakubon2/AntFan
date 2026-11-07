@@ -29,6 +29,8 @@ from .ant_backend import FE_TYPE, HR_TYPE, MAX_CHANNELS, PM_TYPE, AntBackend, Fo
 from .controller import Controller
 from .fans import FanError, HomeAssistantFan, ShellyFan
 from .miio_fan import FanWorker, MiioError, SimulatedFan, XiaomiFan
+from .profiles import ProfilesMixin
+from .ride_ui import RideMixin
 from .single_instance import SingleInstance
 from . import vitr_ui
 
@@ -184,7 +186,7 @@ def _hline(parent):
     tk.Frame(parent, height=1, bg=BORDER).pack(fill="x")
 
 
-class App:
+class App(ProfilesMixin, RideMixin):
     def __init__(self, root: tk.Tk):
         self.root = root
         self.cfg = config_mod.load()
@@ -329,6 +331,7 @@ class App:
         if shown:
             self.settings.deiconify()
             self.settings.lift()
+        self._ride_after_rebuild()
 
     def _lbl(self, parent, text="", fg=MUTED, font=None, **kw):
         return tk.Label(parent, text=text, bg=BG, fg=fg, font=font or self.fonts.small, **kw)
@@ -352,6 +355,7 @@ class App:
         self.btn_run.pack(side="right", padx=8)
         ttk.Checkbutton(top, text="Lišta", variable=self.overlay_var,
                         command=lambda: overlay.apply(self)).pack(side="right", padx=(0, 6))
+        self._profile_bar(top)
         _hline(r)
 
         tiles = tk.Frame(r, bg=BG)
@@ -446,6 +450,7 @@ class App:
                                     ("drink", "Pití", self._page_drink),
                                     ("look", "Vzhled", self._page_look),
                                     ("mobile", "Mobil", self._page_mobile),
+                                    ("rides", "Jízdy", self._page_rides),
                                     ("diag", "Diagnostika", self._page_diag)):
             lb = tk.Label(nav, text=title, bg=SURFACE, fg=MUTED, font=self.fonts.body, anchor="w",
                           padx=14, pady=6, width=14, cursor="hand2")
@@ -626,6 +631,7 @@ class App:
     def _page_control(self, p):
         c = self.cfg.control
         self._page_head(p, "Řízení", "Podle čeho a od jakých hodnot ventilátor přidává.")
+        self._profile_row(p)
         self._lbl(p, "Řídit podle", fg=TEXT, font=self.fonts.body_b, anchor="w").pack(fill="x", pady=(0, 6))
         cards = tk.Frame(p, bg=BG)
         cards.pack(fill="x")
@@ -1570,6 +1576,7 @@ class App:
         if now - self._last_hist >= 1.0:
             self._last_hist = now
             self.history.append((ctrl.power_smoothed, ctrl.hr_smoothed, vitr_ui.fan_fraction(self, desired)))
+            self._ride_tick(now)
             self._draw_chart()
             self._refresh_tree()
         self.root.after(250, self._tick)
@@ -1652,6 +1659,7 @@ class App:
         try:
             self.st_ant.set("Uvolňuji dongle…", FAINT)
             self.root.update_idletasks()
+            self._ride_finish(show=False)
             self._cleanup()
         finally:
             self.root.destroy()
