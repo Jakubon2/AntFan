@@ -30,6 +30,7 @@ from .controller import Controller
 from .fans import FanError, HomeAssistantFan, ShellyFan
 from .miio_fan import FanWorker, MiioError, SimulatedFan, XiaomiFan
 from .single_instance import SingleInstance
+from . import vitr_ui
 
 log = logging.getLogger("antfan")
 
@@ -90,6 +91,7 @@ MODE_CARDS = [
     ("power", "Jen výkon", "Reaguje hned"),
     ("hr", "Jen tep", "Bez powermetru"),
     ("max", "Vyšší z obou", "Fouká víc"),
+    ("wind", "Vítr podle rychlosti", "Rychlost jízdy z trenažéru"),
 ]
 
 
@@ -295,7 +297,7 @@ class App:
         _set_palette(dark)
         self._setup_style()
         self.root.configure(bg=BG)
-        self._last_bars = None
+        self._last_bars = self._last_pct_bar = None
         self._build_ride()
         self._build_settings()
         self.root.geometry(geo)
@@ -343,7 +345,7 @@ class App:
         self.canvas.bind("<Configure>", lambda e: self._draw_chart())
         legend = tk.Frame(r, bg=BG)
         legend.pack(fill="x", padx=16, pady=(0, 8))
-        for text, col in (("výkon, W", POWER), ("tep, bpm (60–200)", HR), ("stupeň ventilátoru", FAN)):
+        for text, col in (("výkon, W", POWER), ("tep, bpm (60–200)", HR), ("ventilátor", FAN)):
             self._lbl(legend, text, fg=col).pack(side="left", padx=(0, 14))
         self._lbl(legend, "posledních 10 min", fg=FAINT).pack(side="right")
         _hline(r)
@@ -661,6 +663,7 @@ class App:
             self.lbl_hunits.append(uh)
         self._thr_shown = c.threshold_mode
         self._fill_thr_entries()
+        vitr_ui.build_control_section(self, p)
         self.lbl_ctrl_err = self._lbl(p, "", fg=BAD, font=self.fonts.body, anchor="w")
         self.lbl_ctrl_err.pack(fill="x", pady=(8, 0))
         self._lbl(p, "Změny se ukládají hned. Hystereze, vyhlazení a dofukování jsou v Chování.",
@@ -836,8 +839,9 @@ class App:
             c.cooldown_level = max(0, min(n, int(self.e_cool_lvl.get())))
             c.no_data_level = max(0, min(n, int(self.e_nodata_lvl.get())))
             c.no_data_s = max(5.0, float(self.e_nodata_s.get().replace(",", ".")))
+            vitr_ui.read_control_section(self, c)
         except ValueError as e:
-            msg = str(e) if "Prahy" in str(e) or "nejvýš" in str(e) else "Zadejte čísla."
+            msg = str(e) if "Prahy" in str(e) or "nejvýš" in str(e) or "km/h" in str(e) else "Zadejte čísla."
             self.lbl_ctrl_err.configure(text=f"Neuloženo: {msg}")
             self.lbl_beh_err.configure(text=f"Neuloženo: {msg}")
             return False
@@ -1051,6 +1055,9 @@ class App:
                 elif kind == "value":
                     _, key, vkind, value, cad = ev
                     now = time.monotonic()
+                    if vkind == "speed":  # rychlost jízdy (vítr), ne do seznamu senzorů
+                        self.controller.feed(vkind, value)
+                        continue
                     self.dev_values[key] = (now, value)
                     if key[1] == PM_TYPE:
                         self._last_pm_value = now
@@ -1168,6 +1175,8 @@ class App:
             return "čeká na měření"
         r = ctrl.reason
         pl, hl = c.power_levels()[:n], c.hr_levels()[:n]
+        if ctrl.pct is not None:
+            return r
         if r == "výkon" and pl:
             return f"výkon nad prahem {pl[desired - 1]} W" if desired > 0 else f"výkon pod prahem {pl[0]} W"
         if r == "tep" and hl:
@@ -1180,7 +1189,7 @@ class App:
         auto_level = ctrl.tick(now)
         desired = auto_level if self.auto_var.get() else self.manual_level
         if self.backend.state == "monitoring" or not self.auto_var.get():
-            self.fan_worker.set_desired(desired)
+            self.fan_worker.set_desired(desired, ctrl.pct if self.auto_var.get() else None)
         else:
             self.fan_worker.set_desired(None)
 
@@ -1199,13 +1208,14 @@ class App:
         self.t_hr["big"].configure(text="–" if ctrl.hr_now is None else str(ctrl.hr_now))
         self.t_hr["sub"].configure(text="" if ctrl.hr_now is None or not c.hr_max else
                                    f"{ctrl.hr_now / c.hr_max * 100:.0f} % max")
-        self.t_fan["big"].configure(text="Vyp" if desired == 0 else str(desired))
-        self._draw_bars(desired)
-        reason = self._reason_text(ctrl, desired)
-        if self.fan_actual is not None and self.fan_worker is not None and self.fan_actual != desired \
-                and (self.backend.state == "monitoring" or not self.auto_var.get()):
-            reason += f" · ventilátor zatím na {'Vyp' if self.fan_actual == 0 else self.fan_actual}"
-        self.t_fan["sub"].configure(text=reason)
+        if not vitr_ui.update_fan_tile(self, desired):  # výstup v % kreslí vitr_ui
+            self.t_fan["big"].configure(text="Vyp" if desired == 0 else str(desired))
+            self._draw_bars(desired)
+            reason = self._reason_text(ctrl, desired)
+            if self.fan_actual is not None and self.fan_worker is not None and self.fan_actual != desired \
+                    and (self.backend.state == "monitoring" or not self.auto_var.get()):
+                reason += f" · ventilátor zatím na {'Vyp' if self.fan_actual == 0 else self.fan_actual}"
+            self.t_fan["sub"].configure(text=reason)
 
         text, col = self._status_short()
         self.st_ant.set(text, col)
@@ -1223,7 +1233,7 @@ class App:
 
         if now - self._last_hist >= 1.0:
             self._last_hist = now
-            self.history.append((ctrl.power_smoothed, ctrl.hr_smoothed, desired))
+            self.history.append((ctrl.power_smoothed, ctrl.hr_smoothed, vitr_ui.fan_fraction(self, desired)))
             self._draw_chart()
             self._refresh_tree()
         self.root.after(250, self._tick)
@@ -1257,8 +1267,8 @@ class App:
             j = i
             while j + 1 < len(hist) and hist[j + 1][2] == lvl:
                 j += 1
-            if lvl:
-                y0 = pad_t + ph * (1 - lvl / n_lvl)
+            if lvl:  # podíl 0..1 (stupeň / počet stupňů, nebo % / 100)
+                y0 = pad_t + ph * (1 - min(1.0, lvl))
                 cv.create_rectangle(x_of(i), y0, x_of(j) + pw / HISTORY_S + 1, pad_t + ph,
                                     fill=FAN_BAND, outline="")
             i = j + 1

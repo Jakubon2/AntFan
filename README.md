@@ -128,6 +128,14 @@ Když jeden zdroj chybí (například nemáte powermetr), použije se automatick
 - **Hystereze**: stupeň se sníží, až když průměr klesne pod práh mínus tuto hodnotu (W, bpm).
 - **Vyhlazení**: průměr za posledních N sekund. Výkon na kole hodně kolísá.
 
+### Plynulá rychlost (Nastavení → Řízení → Výstup)
+Místo stupňů roste rychlost lineárně: na 1. prahu **min. %** (výchozí 20 %), na posledním prahu 100 %, pod 1. prahem vypnuto. Platí pro všechny režimy (Chytře, Jen výkon…). Hystereze a prodleva zůstávají, rychlost pak klesá nejvýš o **Pokles nejvýš** %/s (výchozí 2 %/s). Dofukování i předstih fungují dál.
+
+### Vítr podle rychlosti
+Režim **Vítr podle rychlosti** foukne tak, jak rychle jedete. Rychlost posílá trenažér (FE-C, stránka 0x10), Rouvy ji tam promítá z virtuální trasy. Pod 5 km/h je vypnuto, pak rychlost ventilátoru roste lineárně do 100 % při **plné rychlosti** (výchozí 45 km/h). Volba **minimum podle výkonu a tepu** zabrání přehřátí při pomalém stoupání do kopce: platí vyšší z větru a chlazení podle výkonu.
+
+Ventilátor s rychlostí v % (Xiaomi s plynulou rychlostí, Home Assistant `fan.*`) dostane % přímo, ostatní nejbližší stupeň. Změny pod 5 % se neposílají. V okně jízdy je ventilátor v % (u stupňových ventilátorů i se stupněm), v dlaždici je vidět například „vítr 32 km/h“.
+
 ### Nastavení → Chování
 - **Prodleva před snížením**: jak dlouho musí být hodnota nízko, než se stupeň sníží. Zvýšení je vždy okamžité.
 - **Dofukování po tréninku**: po skončení šlapání ventilátor ještě N minut fouká na zvoleném stupni (výchozí 3 min na stupni 1) a pak se vypne. Hodnota 0 dofukování vypne.
@@ -183,5 +191,7 @@ antfan/usb_diag.py      diagnostika obsazeného donglu, USB reset, oprava úniku
 antfan/single_instance.py  jen jedna spuštěná instance
 antfan/miio_fan.py      protokol miIO pro Xiaomi ventilátor (bez python-miio)
 antfan/controller.py    výpočet stupně: chytrý režim, % FTP, vyhlazení, hystereze, dofukování
+antfan/vitr.py          plynulá rychlost a vítr podle rychlosti: mapování na %, pomalé snižování
+antfan/vitr_ui.py       nastavení a dlaždice ventilátoru pro výstup v %
 antfan/app.py           GUI (tkinter)
 ```

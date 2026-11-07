@@ -27,7 +27,7 @@ import time
 from dataclasses import dataclass
 
 from . import usb_diag
-from .rx import GapClassifier, RxMonitor
+from .rx import GapClassifier, RxMonitor, decode_speed
 
 log = logging.getLogger("antfan.ant")
 
@@ -413,10 +413,13 @@ class AntBackend:
 
                 # výkon dekódujeme sami z každé stránky (viz rx.py), ne přes
                 # openant on_device_data, které chodí jen při změně čítače
-                def handle(data, mon=mon, key=key):
+                def handle(data, mon=mon, key=key, dt=d.device_type):
                     res = mon.on_page(data, time.monotonic())
                     if res is not None:
                         self.events.put(("value", key, "power", res[0], res[1]))
+                    spd = decode_speed(dt, data)  # FE-C 0x10: rychlost (vítr podle rychlosti)
+                    if spd is not None:
+                        self.events.put(("value", key, "speed", spd, None))
 
             self._hook_channel(dev, handle, mon)
             self._devices.append(dev)
@@ -489,6 +492,7 @@ class SimulatedBackend:
             t0 = time.monotonic()
             hr = 95.0
             ev = 0
+            speed = 0.0
             while self._alive(gen):
                 now = time.monotonic()
                 t = now - t0
@@ -500,6 +504,10 @@ class SimulatedBackend:
                     power = int(max(0, 200 + 110 * math.sin(t / 14) + random.gauss(0, 15)))
                     cad = 85 + random.randint(-4, 4)
                     ev = (ev + 1) & 0xFF  # při šlapání se čítač událostí posouvá
+                # rychlost na virtuální trase: kopce nahoru (pomalu) a dolů (rychle)
+                slope = 6 * math.sin(t / 45)  # sklon v %
+                target_v = 0.0 if power == 0 else max(8.0, 32 - 3.2 * slope + (power - 200) * 0.04)
+                speed += (target_v - speed) * (0.04 if target_v < speed else 0.08)
                 target_hr = 90 + power * 0.28
                 hr += (target_hr - hr) * 0.03
                 # simulace rádia: ~3 % ztracených zpráv a každých 75 s výpadek 4 s
@@ -522,6 +530,13 @@ class SimulatedBackend:
                     self._gaps.after_page(mon, list(rx.values()))
                     if res is not None:
                         self.events.put(("value", d.key, "power", res[0], res[1]))
+                    if d.device_type == FE_TYPE:
+                        mm = int(speed / 0.0036)
+                        fe = [0x10, 25, 0, 0, mm & 0xFF, mm >> 8, 0xFF, 0x24]
+                        mon.on_page(fe, now)
+                        spd = decode_speed(FE_TYPE, fe)
+                        if spd is not None:
+                            self.events.put(("value", d.key, "speed", spd, None))
                 time.sleep(0.25)
 
         threading.Thread(target=run, daemon=True).start()

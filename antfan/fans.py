@@ -7,6 +7,7 @@
 
 Všechny třídy mají stejné rozhraní jako XiaomiFan:
 info(), get_state() -> (zapnuto, stupeň), set_level(stupeň), apply_quiet() -> [nepodporované].
+Ventilátory s rychlostí v % mají navíc supports_percent(), set_percent(%), get_percent().
 """
 from __future__ import annotations
 
@@ -266,3 +267,22 @@ class HomeAssistantFan(_OnOff):
             svc = "turn_on" if self._want_on(level) else "turn_off"
             self._call(f"/api/services/{self.domain}/{svc}", ent)
         self._last = level
+
+    # --- rychlost v % (jen fan.*)
+    def supports_percent(self) -> bool:
+        return self.domain == "fan"
+
+    def set_percent(self, pct: float) -> None:
+        ent = {"entity_id": self.entity}
+        if pct <= 0:
+            self._call("/api/services/fan/turn_off", ent)
+        else:
+            p = max(1, min(100, round(pct)))
+            self._call("/api/services/fan/set_percentage", {**ent, "percentage": p})
+
+    def get_percent(self) -> tuple[bool, float]:
+        st = self._call(f"/api/states/{self.entity}") or {}
+        if st.get("state") != "on":
+            return False, 0.0
+        pct = st.get("attributes", {}).get("percentage")
+        return True, 100.0 if pct is None else float(pct)

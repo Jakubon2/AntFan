@@ -285,6 +285,62 @@ class XiaomiFan:
             if r.get("code", 0) != 0:
                 raise MiioError(f"Ventilátor odmítl nastavení {r.get('did')}: kód {r.get('code')}")
 
+    # --- rychlost v % (jen modely s rychlostí v %, viz vitr.py)
+    def _pct_range(self):
+        prof = self._profile()
+        if prof[0] == "legacy":
+            return 1, 100
+        vals = prof[2]
+        if vals and vals[0] == "range":
+            return int(vals[1]), int(vals[2])
+        return None
+
+    def supports_percent(self) -> bool:
+        return self._pct_range() is not None
+
+    def set_percent(self, pct: float) -> None:
+        from .vitr import pct_to_range
+
+        rng = self._pct_range()
+        if rng is None or pct <= 0:
+            self.set_level(0 if pct <= 0 else self.cfg.max_level)
+            return
+        value = pct_to_range(pct, *rng)
+        prof = self._profile()
+        if prof[0] == "legacy":
+            if prof[1] == "p5":
+                self.client.send("s_power", [True])
+                self.client.send("s_speed", [value])
+            else:
+                self.client.send("set_power", ["on"])
+                self.client.send("set_speed_level", [value])
+            return
+        (ps, pp), (ls, lp) = prof[0], prof[1]
+        res = self.client.send("set_properties", [
+            {"did": "power", "siid": ps, "piid": pp, "value": True},
+            {"did": "level", "siid": ls, "piid": lp, "value": value},
+        ])
+        for r in res or []:
+            if r.get("code", 0) != 0:
+                raise MiioError(f"Ventilátor odmítl nastavení {r.get('did')}: kód {r.get('code')}")
+
+    def get_percent(self) -> tuple[bool, float]:
+        from .vitr import range_to_pct
+
+        rng = self._pct_range() or (1, 100)
+        prof = self._profile()
+        if prof[0] == "legacy":
+            props = ["power", "speed"] if prof[1] == "p5" else ["power", "speed_level"]
+            power, speed = (self.client.send("get_prop", props) or [False, 0])[:2]
+            return power in (True, "on"), range_to_pct(speed, *rng)
+        (ps, pp), (ls, lp) = prof[0], prof[1]
+        res = self.client.send("get_properties", [
+            {"did": "power", "siid": ps, "piid": pp},
+            {"did": "level", "siid": ls, "piid": lp},
+        ])
+        v = {r.get("did"): r.get("value") for r in (res or []) if r.get("code", 0) == 0}
+        return bool(v.get("power")), range_to_pct(v.get("level"), *rng)
+
     def apply_quiet(self) -> list[str]:
         """Nastaví pípání a podsvícení podle konfigurace.
 
@@ -327,6 +383,7 @@ class SimulatedFan:
         self.cfg = cfg
         self._power = False
         self._level = 1
+        self._pct = 0.0
 
     def info(self) -> dict:
         return {"model": "simulace", "fw_ver": "-"}
@@ -339,7 +396,24 @@ class SimulatedFan:
         self._power = level > 0
         if level:
             self._level = level
+        self._pct = 100.0 * level / max(1, self.cfg.max_level) if level else self._pct
         log.info("SIM ventilátor -> stupeň %s", level)
+
+    # simulovaný ventilátor umí rychlost v % (jako novější Xiaomi)
+    def supports_percent(self) -> bool:
+        return True
+
+    def set_percent(self, pct: float) -> None:
+        from .vitr import pct_to_level
+
+        self._power = pct > 0
+        if pct > 0:
+            self._pct = float(pct)
+            self._level = pct_to_level(pct, self.cfg.max_level)
+        log.info("SIM ventilátor -> %.0f %%", pct)
+
+    def get_percent(self) -> tuple[bool, float]:
+        return self._power, self._pct
 
     def apply_quiet(self) -> list[str]:
         log.info("SIM ventilátor: pípání %s, podsvícení %s",
@@ -354,21 +428,32 @@ class FanWorker:
     - každých 15 s si přečte skutečný stav a když ho někdo změnil
       ovladačem, vrátí ho na požadovanou hodnotu,
     - při chybě to zkouší znovu po 5 s.
+    - Rychlost v % (plynulé řízení, vítr): ventilátor s rychlostí v %
+      ji dostane přímo, ostatní nejbližší stupeň. Posílají se jen změny
+      aspoň o 5 % (a zapnutí/vypnutí).
     """
 
     POLL_S = 15.0
     RETRY_S = 5.0
+    PCT_STEP = 5.0
 
     def __init__(self, events: "queue.Queue"):
         self.events = events
         self._fan = None
         self._desired: int | None = None
+        self._desired_pct: float | None = None
         self._sent: int | None = None
+        self._sent_pct: float | None = None
+        self._ref_pct: float | None = None   # co ventilátor hlásí po nastavení (zaokrouhlí si)
+        self._corrected = False
+        self._target_pct: float | None = None
+        self.percent_capable: bool | None = None   # None = ještě nevíme
+        self.actual_pct: float | None = None
         self._lock = threading.Lock()
         self._wake = threading.Event()
         self._stop = False
         self._last_poll = 0.0
-        self._last_error = 0.0
+        self._last_error = -1e9   # time.monotonic() může začínat blízko 0
         self._quiet_pending = False
         self._thread = threading.Thread(target=self._run, name="fan", daemon=True)
         self._thread.start()
@@ -377,13 +462,22 @@ class FanWorker:
         with self._lock:
             self._fan = fan
             self._sent = None
+            self._sent_pct = None
+            self.percent_capable = None
+            self.actual_pct = None
             self._quiet_pending = fan is not None
         self._wake.set()
 
-    def set_desired(self, level: int | None) -> None:
+    def set_desired(self, level: int | None, pct: float | None = None) -> None:
+        """Požadovaný stupeň; pct (0–100) = plynulá rychlost, má přednost u ventilátorů s %."""
         with self._lock:
+            changed = level != self._desired or (pct is None) != (self._desired_pct is None)
+            if pct is not None and self._desired_pct is not None:
+                changed = changed or self._pct_changed(pct, self._desired_pct)
             self._desired = level
-        self._wake.set()
+            self._desired_pct = None if pct is None else max(0.0, min(100.0, float(pct)))
+        if changed:
+            self._wake.set()
 
     def stop(self) -> None:
         self._stop = True
@@ -392,12 +486,29 @@ class FanWorker:
     def _emit(self, ok: bool, text: str, actual: int | None = None):
         self.events.put(("fan", ok, text, actual))
 
+    @classmethod
+    def _pct_changed(cls, new: float, old: float | None) -> bool:
+        if old is None:
+            return True
+        if (new > 0) != (old > 0):
+            return True
+        if new >= 100.0 > old or new < old and new <= 0:
+            return True
+        return abs(new - old) >= cls.PCT_STEP
+
+    def _capable(self, fan) -> bool:
+        if self.percent_capable is None:
+            sp = getattr(fan, "supports_percent", None)
+            self.percent_capable = bool(sp()) if callable(sp) else False
+        return self.percent_capable
+
     def _run(self):
         while not self._stop:
             self._wake.wait(1.0)
             self._wake.clear()
             with self._lock:
                 fan, desired, sent = self._fan, self._desired, self._sent
+                dpct, spct = self._desired_pct, self._sent_pct
             if fan is None:
                 continue
             now = time.monotonic()
@@ -415,10 +526,14 @@ class FanWorker:
                                    + ", ".join("pípání" if f == "buzzer" else "podsvícení" for f in failed) + ")")
                 if desired is None:
                     continue
+                if dpct is not None and self._capable(fan):
+                    self._run_pct(fan, dpct, spct, now)
+                    continue
                 if desired != sent:
                     fan.set_level(desired)
                     with self._lock:
                         self._sent = desired
+                        self._sent_pct = None
                     self._last_poll = now
                     self._emit(True, "nastaveno", desired)
                 elif now - self._last_poll > self.POLL_S:
@@ -436,5 +551,40 @@ class FanWorker:
                 self._quiet_pending = True  # po výpadku (třeba vytažení ze zásuvky) nastavit znovu
                 with self._lock:
                     self._sent = None
+                    self._sent_pct = None
                 log.warning("Chyba ventilátoru: %s", e)
                 self._emit(False, str(e))
+
+    def _run_pct(self, fan, dpct: float, spct: float | None, now: float) -> None:
+        from .vitr import pct_to_level
+
+        n = max(1, getattr(getattr(fan, "cfg", None), "max_level", 3) or 3)
+        if self._pct_changed(dpct, spct):
+            fan.set_percent(dpct)
+            with self._lock:
+                self._sent_pct = dpct
+                self._sent = None
+            if self._target_pct is None or self._pct_changed(dpct, self._target_pct):
+                self._ref_pct, self._corrected = dpct, False   # nová hodnota, ne oprava
+            self._target_pct = dpct
+            self.actual_pct = dpct
+            self._last_poll = now
+            self._emit(True, "nastaveno", pct_to_level(dpct, n))
+        elif now - self._last_poll > self.POLL_S:
+            self._last_poll = now
+            on, pct = fan.get_percent()
+            actual = pct if on else 0.0
+            self.actual_pct = actual
+            want_on = (spct or 0) > 0
+            ref = self._ref_pct if self._ref_pct is not None else (spct or 0)
+            if on != want_on or (want_on and abs(actual - ref) > self.PCT_STEP):
+                if on == want_on and self._corrected:
+                    # ventilátor si hodnotu zaokrouhluje (např. jen 3 rychlosti) – přijmout
+                    self._ref_pct = actual
+                else:
+                    log.info("Rychlost ventilátoru %.0f %% != požadovaná %.0f %%, opravuji", actual, spct or 0)
+                    self._corrected = True
+                    with self._lock:
+                        self._sent_pct = None
+                    self._wake.set()
+            self._emit(True, "připojeno", pct_to_level(actual, n))
