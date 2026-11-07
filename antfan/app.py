@@ -1,28 +1,61 @@
-"""GUI aplikace AntFan (tkinter)."""
+"""GUI aplikace AntFan (tkinter).
+
+Dvě okna:
+  * Jízda (hlavní) – velká čísla čitelná ze sedla, graf posledních 10 minut,
+    ruční přepínač stupně a stav příjmu senzorů.
+  * Nastavení – senzory, ventilátor, řízení, chování, diagnostika.
+    Změny se ukládají hned.
+"""
 from __future__ import annotations
 
 import atexit
 import logging
+import os
 import queue
+import subprocess
+import sys
+import threading
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 from collections import deque
 from logging.handlers import RotatingFileHandler
 from tkinter import messagebox, ttk
 
+from . import __version__
 from . import config as config_mod
 from . import usb_diag
-from .single_instance import SingleInstance
 from .ant_backend import FE_TYPE, HR_TYPE, MAX_CHANNELS, PM_TYPE, AntBackend, FoundDevice, SimulatedBackend
-from .controller import SOURCE_MODES, Controller
+from .controller import Controller
 from .miio_fan import FanWorker, MiioError, SimulatedFan, XiaomiFan
+from .single_instance import SingleInstance
 
 log = logging.getLogger("antfan")
 
-HISTORY_S = 300
-COL_POWER = "#e8590c"
-COL_HR = "#d6336c"
-COL_FAN = "#d0ebff"
+HISTORY_S = 600  # graf: posledních 10 minut
+
+# barvy – jedna barva = jeden význam
+BG = "#ffffff"
+SURFACE = "#f6f5f2"
+BORDER = "#e3e1db"
+TEXT = "#1f1f1d"
+MUTED = "#6b6a65"
+FAINT = "#a3a19a"
+POWER = "#D85A30"
+HR = "#D4537E"
+FAN = "#185FA5"
+FAN_BAND = "#e1ecf7"
+ACCENT = "#185FA5"
+ACCENT_BG = "#e6f1fb"
+OK = "#2f7d32"
+BAD = "#c0392b"
+
+MODE_CARDS = [
+    ("smart", "Chytře", "Výkon zvyšuje, tep drží"),
+    ("power", "Jen výkon", "Reaguje hned"),
+    ("hr", "Jen tep", "Bez powermetru"),
+    ("max", "Vyšší z obou", "Fouká víc"),
+]
 
 
 def setup_logging():
@@ -33,6 +66,78 @@ def setup_logging():
     root.setLevel(logging.INFO)
     root.addHandler(handler)
     logging.getLogger("openant").setLevel(logging.WARNING)
+
+
+def _plural_senzor(n: int) -> str:
+    return "senzor" if n == 1 else ("senzory" if 2 <= n <= 4 else "senzorů")
+
+
+class Fonts:
+    def __init__(self, root):
+        fams = set(tkfont.families(root))
+        base = "Segoe UI" if "Segoe UI" in fams else tkfont.nametofont("TkDefaultFont").actual()["family"]
+        semi = "Segoe UI Semibold" if "Segoe UI Semibold" in fams else None
+        self.small = (base, 9)
+        self.body = (base, 10)
+        self.body_b = (semi, 10) if semi else (base, 10, "bold")
+        self.title = (semi, 11) if semi else (base, 11, "bold")
+        self.h2 = (semi, 13) if semi else (base, 13, "bold")
+        self.big = (semi, 40) if semi else (base, 40, "bold")
+        self.chart = (base, 8)
+
+
+class StatusDot(tk.Frame):
+    def __init__(self, parent, fonts):
+        super().__init__(parent, bg=BG)
+        self.c = tk.Canvas(self, width=10, height=10, bg=BG, highlightthickness=0)
+        self.c.pack(side="left", padx=(0, 6))
+        self.dot = self.c.create_oval(2, 2, 9, 9, fill=FAINT, outline="")
+        self.lbl = tk.Label(self, text="", bg=BG, fg=MUTED, font=fonts.body)
+        self.lbl.pack(side="left")
+
+    def set(self, text, color):
+        if self.lbl.cget("text") != text:
+            self.lbl.configure(text=text)
+        self.c.itemconfigure(self.dot, fill=color)
+
+
+class Segmented(tk.Frame):
+    """Přepínač Auto | Vyp | 1 | 2 | 3."""
+
+    def __init__(self, parent, options, command, fonts):
+        super().__init__(parent, bg=BORDER, padx=1, pady=1)
+        self.items: dict = {}
+        for i, (key, text) in enumerate(options):
+            lb = tk.Label(self, text=text, bg=BG, fg=TEXT, font=fonts.body, padx=13, pady=4,
+                          cursor="hand2")
+            lb.pack(side="left", padx=(0 if i == 0 else 1, 0))
+            lb.bind("<Button-1>", lambda e, k=key: command(k))
+            self.items[key] = lb
+
+    def set(self, key):
+        for k, lb in self.items.items():
+            sel = k == key
+            lb.configure(bg=ACCENT_BG if sel else BG, fg=ACCENT if sel else TEXT)
+
+
+class ChoiceCard(tk.Frame):
+    def __init__(self, parent, title, desc, command, fonts):
+        super().__init__(parent, bg=BG, highlightthickness=1, highlightbackground=BORDER,
+                         highlightcolor=BORDER, cursor="hand2")
+        t = tk.Label(self, text=title, bg=BG, fg=TEXT, font=fonts.body_b, anchor="w")
+        d = tk.Label(self, text=desc, bg=BG, fg=MUTED, font=fonts.small, anchor="w")
+        t.pack(fill="x", padx=10, pady=(7, 0))
+        d.pack(fill="x", padx=10, pady=(0, 7))
+        for w in (self, t, d):
+            w.bind("<Button-1>", lambda e: command())
+
+    def set_selected(self, sel):
+        col = ACCENT if sel else BORDER
+        self.configure(highlightthickness=2 if sel else 1, highlightbackground=col, highlightcolor=col)
+
+
+def _hline(parent):
+    tk.Frame(parent, height=1, bg=BORDER).pack(fill="x")
 
 
 class App:
@@ -49,6 +154,11 @@ class App:
         self.fan_actual: int | None = None
         self._last_pm_value = -1e9
         self.manual_level = 0
+        self._ant_error = False
+        self.ant_status_full = "Připraveno"
+        self.fan_status_text, self.fan_ok = "nepřipojeno", False
+        self._apply_job = None
+        self._last_bars = None
 
         for d in self.cfg.selected:
             fd = FoundDevice(d[0], d[1], d[2] if len(d) > 2 else 0)
@@ -56,248 +166,378 @@ class App:
 
         self.backend = None
         self.fan_worker = FanWorker(self.events)
+        self.sim_var = tk.BooleanVar(value=self.cfg.simulation)
+        self.auto_var = tk.BooleanVar(value=self.cfg.auto_mode)
+        self.source_mode = self.cfg.control.source_mode
 
-        root.title("AntFan – ANT+ řízení ventilátoru")
-        self._build_ui()
+        self.fonts = Fonts(root)
+        self.px = max(1.0, root.winfo_fpixels("1i") / 96)  # měřítko pro pixely (HiDPI)
+        self._setup_style()
+        root.title("AntFan")
+        root.configure(bg=BG)
+        self._build_ride()
+        self._build_settings()
         self._make_backend()
         self._make_fan()
         self._refresh_tree()
-        # velikost okna podle obsahu (na Windows se zvětšením 125–150 % jsou prvky větší)
+
         root.update_idletasks()
         need_w, need_h = root.winfo_reqwidth(), root.winfo_reqheight()
         scr_w, scr_h = root.winfo_screenwidth(), root.winfo_screenheight() - 60
-        w = min(max(int(need_w * 1.12), 1280), scr_w)
-        h = min(max(need_h + 40, 800), scr_h)
+        w = min(max(need_w, int(900 * self.px)), scr_w)
+        h = min(max(need_h + int(200 * self.px), int(620 * self.px)), scr_h)
         root.geometry(f"{w}x{h}")
-        root.minsize(min(need_w, scr_w), min(need_h, scr_h))
+        root.minsize(min(need_w, scr_w), min(need_h + int(120 * self.px), scr_h))
 
         root.protocol("WM_DELETE_WINDOW", self._on_close)
         root.after(100, self._poll_events)
         root.after(250, self._tick)
+        if not self.selected:  # první spuštění: rovnou výběr senzorů
+            root.after(300, lambda: self.open_settings("sensors"))
 
-    # ------------------------------------------------------------------ UI
-    def _build_ui(self):
-        style = ttk.Style()
-        style.configure("Big.TLabel", font=("Segoe UI", 34, "bold"))
-        style.configure("Unit.TLabel", font=("Segoe UI", 11))
-        style.configure("Head.TLabel", font=("Segoe UI", 10, "bold"))
+    # ================================================================ vzhled
+    def _setup_style(self):
+        st = ttk.Style()
+        for name in ("TFrame", "TLabel", "TCheckbutton", "TRadiobutton"):
+            st.configure(name, background=BG)
+        st.configure("TLabel", foreground=TEXT, font=self.fonts.body)
+        st.configure("TCheckbutton", font=self.fonts.body)
+        st.configure("TRadiobutton", font=self.fonts.body)
+        st.configure("TButton", font=self.fonts.body)
+        st.configure("Treeview", font=self.fonts.body, rowheight=int(24 * self.px))
+        st.configure("Treeview.Heading", font=self.fonts.small)
 
-        top = ttk.Frame(self.root, padding=(10, 8))
-        top.pack(fill="x")
-        self.btn_scan = ttk.Button(top, text="🔍 Hledat senzory", command=self.on_scan)
-        self.btn_scan.pack(side="left")
-        self.btn_start = ttk.Button(top, text="▶ Spustit měření vybraných", command=self.on_start)
-        self.btn_start.pack(side="left", padx=6)
-        self.btn_stop = ttk.Button(top, text="■ Zastavit", command=self.on_stop)
-        self.btn_stop.pack(side="left")
-        ttk.Button(top, text="⟲ Reset donglu", command=self.on_reset).pack(side="left", padx=6)
-        self.sim_var = tk.BooleanVar(value=self.cfg.simulation)
-        ttk.Checkbutton(top, text="Simulace (bez hardwaru)", variable=self.sim_var,
-                        command=self.on_sim_toggle).pack(side="right")
-        self.ant_status = tk.StringVar(value="Připraveno")
-        ttk.Label(top, textvariable=self.ant_status, foreground="#495057").pack(side="left", padx=14)
+    def _lbl(self, parent, text="", fg=MUTED, font=None, **kw):
+        return tk.Label(parent, text=text, bg=BG, fg=fg, font=font or self.fonts.small, **kw)
 
-        main = ttk.Frame(self.root, padding=(10, 0, 10, 10))
-        main.pack(fill="both", expand=True)
-        main.columnconfigure(0, weight=2, minsize=280)
-        main.columnconfigure(1, weight=5, minsize=380)
-        main.columnconfigure(2, weight=0)  # nastavení: přirozená šířka
-        main.rowconfigure(0, weight=1)
+    # ================================================================ jízda
+    def _build_ride(self):
+        r, f = self.root, self.fonts
+        top = tk.Frame(r, bg=BG)
+        top.pack(fill="x", padx=14, pady=10)
+        tk.Label(top, text="AntFan", bg=BG, fg=TEXT, font=f.title).pack(side="left", padx=(0, 14))
+        self.st_ant = StatusDot(top, f)
+        self.st_ant.pack(side="left", padx=(0, 14))
+        self.st_fan = StatusDot(top, f)
+        self.st_fan.pack(side="left")
+        ttk.Button(top, text="Nastavení", command=lambda: self.open_settings()).pack(side="right")
+        self.btn_run = ttk.Button(top, text="Spustit měření", command=self.on_run_toggle)
+        self.btn_run.pack(side="right", padx=8)
+        _hline(r)
 
-        # --- senzory
-        left = ttk.LabelFrame(main, text="Senzory ANT+ (kliknutím vyberte)", padding=6)
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        cols = ("sel", "type", "id", "value", "rx")
-        self.tree = ttk.Treeview(left, columns=cols, show="headings", selectmode="none")
-        for c, t, w in (("sel", "✓", 30), ("type", "Typ", 92), ("id", "ID", 64),
-                        ("value", "Hodnota", 72), ("rx", "Příjem", 58)):
-            self.tree.heading(c, text=t)
-            self.tree.column(c, width=w, anchor="center" if c != "type" else "w")
-        self.tree.tag_configure("weak", foreground="#c92a2a")
-        self.tree.pack(fill="both", expand=True)
-        self.tree.bind("<Button-1>", self.on_tree_click)
-        self.rx_hint = tk.StringVar(value="")
-        ttk.Label(left, textvariable=self.rx_hint, foreground="#c92a2a",
-                  wraplength=300, justify="left").pack(anchor="w", pady=(6, 0))
-        ttk.Label(left, text=f"Max. {MAX_CHANNELS} senzorů. Výběr se pamatuje –\n"
-                             "příště stačí rovnou „Spustit měření“.",
-                  foreground="#868e96").pack(anchor="w", pady=(6, 0))
-
-        # --- živá data
-        mid = ttk.LabelFrame(main, text="Živá data", padding=8)
-        mid.grid(row=0, column=1, sticky="nsew", padx=(0, 8))
-        tiles = ttk.Frame(mid)
+        tiles = tk.Frame(r, bg=BG)
         tiles.pack(fill="x")
-        for i in range(3):
-            tiles.columnconfigure(i, weight=1)
-        self.v_power = tk.StringVar(value="–")
-        self.v_power_avg = tk.StringVar(value="")
-        self.v_hr = tk.StringVar(value="–")
-        self.v_hr_avg = tk.StringVar(value="")
-        self.v_fan = tk.StringVar(value="–")
-        self.v_fan_info = tk.StringVar(value="")
-        self._tile(tiles, 0, "VÝKON", self.v_power, "W", self.v_power_avg, COL_POWER)
-        self._tile(tiles, 1, "TEP", self.v_hr, "bpm", self.v_hr_avg, COL_HR)
-        self._tile(tiles, 2, "VENTILÁTOR", self.v_fan, "stupeň", self.v_fan_info, "#1971c2")
-        self.canvas = tk.Canvas(mid, background="white", highlightthickness=0)
-        self.canvas.pack(fill="both", expand=True, pady=(10, 0))
+        for i in (0, 2, 4):
+            tiles.columnconfigure(i, weight=1, uniform="tile")
+        self.t_power = self._tile(tiles, 0, "Výkon · průměr", "W", POWER)
+        tk.Frame(tiles, width=1, bg=BORDER).grid(row=0, column=1, sticky="ns")
+        self.t_hr = self._tile(tiles, 2, "Tep", "bpm", HR)
+        tk.Frame(tiles, width=1, bg=BORDER).grid(row=0, column=3, sticky="ns")
+        self.t_fan = self._tile(tiles, 4, "Ventilátor", "", FAN, bars=True)
+        _hline(r)
+
+        self.canvas = tk.Canvas(r, background=BG, highlightthickness=0, height=int(220 * self.px))
+        self.canvas.pack(fill="both", expand=True, padx=12, pady=(8, 2))
         self.canvas.bind("<Configure>", lambda e: self._draw_chart())
+        legend = tk.Frame(r, bg=BG)
+        legend.pack(fill="x", padx=16, pady=(0, 8))
+        for text, col in (("výkon, W", POWER), ("tep, bpm (60–200)", HR), ("stupeň ventilátoru", FAN)):
+            self._lbl(legend, text, fg=col).pack(side="left", padx=(0, 14))
+        self._lbl(legend, "posledních 10 min", fg=FAINT).pack(side="right")
+        _hline(r)
 
-        # --- nastavení
-        right = ttk.Frame(main)
-        right.grid(row=0, column=2, sticky="nsew")
-        self._build_fan_box(right)
-        self._build_control_box(right)
+        bottom = tk.Frame(r, bg=BG)
+        bottom.pack(fill="x", padx=14, pady=10)
+        opts = [("auto", "Auto"), (0, "Vyp")] + [(i, str(i)) for i in range(1, self.cfg.fan.max_level + 1)]
+        self.seg = Segmented(bottom, opts, self.on_segment, f)
+        self.seg.pack(side="left")
+        self.rx_box = tk.Frame(bottom, bg=BG)
+        self.rx_box.pack(side="right")
+        self.rx_labels: list = []
+        self.lbl_ride_hint = self._lbl(r, "", fg=BAD, font=f.body, justify="left", anchor="w")
+        self.lbl_ride_hint.pack(fill="x", padx=16, pady=(0, 10))
+        r.bind("<Configure>", lambda e: self.lbl_ride_hint.configure(
+            wraplength=max(200, r.winfo_width() - 40)))
+        self._update_segment()
 
-    def _tile(self, parent, col, title, var, unit, sub, color):
-        f = ttk.Frame(parent, padding=4)
-        f.grid(row=0, column=col, sticky="nsew")
-        ttk.Label(f, text=title, style="Head.TLabel", foreground=color).pack(anchor="w")
-        row = ttk.Frame(f)
-        row.pack(anchor="w")
-        ttk.Label(row, textvariable=var, style="Big.TLabel").pack(side="left")
-        ttk.Label(row, text=unit, style="Unit.TLabel").pack(side="left", padx=(4, 0), pady=(14, 0))
-        ttk.Label(f, textvariable=sub, foreground="#868e96").pack(anchor="w")
+    def _tile(self, parent, col, title, unit, color, bars=False):
+        cell = tk.Frame(parent, bg=BG)
+        cell.grid(row=0, column=col, sticky="nsew", padx=16, pady=(12, 12))
+        head = self._lbl(cell, title, anchor="w")
+        head.pack(fill="x")
+        line = tk.Frame(cell, bg=BG)
+        line.pack(anchor="w")
+        big = tk.Label(line, text="–", bg=BG, fg=color, font=self.fonts.big)
+        big.pack(side="left")
+        bar_c = None
+        if bars:
+            bw = int(12 * self.px)
+            bar_c = tk.Canvas(line, width=bw * 4, height=int(30 * self.px), bg=BG, highlightthickness=0)
+            bar_c.pack(side="left", padx=(10, 0), pady=(0, int(10 * self.px)), anchor="s")
+        elif unit:
+            self._lbl(line, unit).pack(side="left", padx=(6, 0), pady=(0, int(10 * self.px)), anchor="s")
+        sub = self._lbl(cell, "", anchor="w", justify="left")
+        sub.pack(fill="x")
+        return {"head": head, "big": big, "sub": sub, "bars": bar_c}
 
-    def _build_fan_box(self, parent):
-        box = ttk.LabelFrame(parent, text="Xiaomi Smart Fan 2 Lite", padding=8)
-        box.pack(fill="x")
-        box.columnconfigure(1, weight=1)
-        ttk.Label(box, text="IP adresa").grid(row=0, column=0, sticky="w")
-        self.e_ip = ttk.Entry(box)
+    def _draw_bars(self, level):
+        n = max(1, self.cfg.fan.max_level)
+        if self._last_bars == (level, n):
+            return
+        self._last_bars = (level, n)
+        c = self.t_fan["bars"]
+        c.delete("all")
+        bw, gap = int(10 * self.px), int(3 * self.px)
+        hmax = int(28 * self.px)
+        for i in range(n):
+            h = int(hmax * (i + 1) / n)
+            x = i * (bw + gap)
+            c.create_rectangle(x, hmax - h + 2, x + bw, hmax + 2, outline="",
+                               fill=FAN if i < level else BORDER)
+
+    # ============================================================ nastavení
+    def _build_settings(self):
+        w = self.settings = tk.Toplevel(self.root)
+        w.title("AntFan – nastavení")
+        w.configure(bg=BG)
+        w.withdraw()
+        w.protocol("WM_DELETE_WINDOW", w.withdraw)
+        nav = tk.Frame(w, bg=SURFACE)
+        nav.pack(side="left", fill="y")
+        tk.Frame(w, width=1, bg=BORDER).pack(side="left", fill="y")
+        host = tk.Frame(w, bg=BG)
+        host.pack(side="left", fill="both", expand=True, padx=20, pady=16)
+        self.pages, self.nav_items = {}, {}
+        tk.Frame(nav, bg=SURFACE, height=10).pack()
+        for key, title, builder in (("sensors", "Senzory", self._page_sensors),
+                                    ("fan", "Ventilátor", self._page_fan),
+                                    ("control", "Řízení", self._page_control),
+                                    ("behavior", "Chování", self._page_behavior),
+                                    ("diag", "Diagnostika", self._page_diag)):
+            lb = tk.Label(nav, text=title, bg=SURFACE, fg=MUTED, font=self.fonts.body, anchor="w",
+                          padx=14, pady=6, width=14, cursor="hand2")
+            lb.pack(fill="x", padx=6, pady=1)
+            lb.bind("<Button-1>", lambda e, k=key: self.show_page(k))
+            self.nav_items[key] = lb
+            page = tk.Frame(host, bg=BG)
+            builder(page)
+            self.pages[key] = page
+        self.show_page("sensors")
+        w.update_idletasks()
+        need = max(p.winfo_reqwidth() for p in self.pages.values()) + nav.winfo_reqwidth() + 60
+        hneed = max(p.winfo_reqheight() for p in self.pages.values()) + 50
+        w.geometry(f"{need}x{hneed}")
+        w.minsize(need, hneed)
+
+    def show_page(self, key):
+        for k, p in self.pages.items():
+            p.pack_forget()
+            self.nav_items[k].configure(bg=BG if k == key else SURFACE, fg=TEXT if k == key else MUTED)
+        self.pages[key].pack(fill="both", expand=True)
+
+    def open_settings(self, page=None):
+        if page:
+            self.show_page(page)
+        self.settings.deiconify()
+        self.settings.lift()
+        self.settings.focus_force()
+
+    def _page_head(self, page, title, desc):
+        tk.Label(page, text=title, bg=BG, fg=TEXT, font=self.fonts.h2, anchor="w").pack(fill="x")
+        self._lbl(page, desc, anchor="w", justify="left", wraplength=int(440 * self.px)).pack(
+            fill="x", pady=(2, 12))
+
+    def _entry(self, parent, value, width=6):
+        e = ttk.Entry(parent, width=width, justify="center")
+        v = int(value) if float(value).is_integer() else value
+        e.insert(0, str(v))
+        e.bind("<KeyRelease>", lambda ev: self._schedule_apply())
+        return e
+
+    # --- Senzory
+    def _page_sensors(self, p):
+        self._page_head(p, "Senzory", "Kliknutím vyberte tepový pás a trenažér nebo powermetr. "
+                                      "Výběr se pamatuje, příště stačí Spustit měření.")
+        row = tk.Frame(p, bg=BG)
+        row.pack(fill="x", pady=(0, 8))
+        ttk.Button(row, text="Hledat senzory", command=self.on_scan).pack(side="left")
+        self.lbl_scan = self._lbl(row, "", font=self.fonts.body)
+        self.lbl_scan.pack(side="left", padx=10)
+        cols = ("sel", "type", "id", "value", "rx")
+        self.tree = ttk.Treeview(p, columns=cols, show="headings", selectmode="none", height=7)
+        for c, t, wd in (("sel", "", 30), ("type", "Typ", 110), ("id", "ID", 70),
+                         ("value", "Hodnota", 80), ("rx", "Příjem", 70)):
+            self.tree.heading(c, text=t)
+            self.tree.column(c, width=int(wd * self.px), anchor="center" if c != "type" else "w")
+        self.tree.tag_configure("weak", foreground=BAD)
+        self.tree.pack(fill="x")
+        self.tree.bind("<Button-1>", self.on_tree_click)
+        self.lbl_sensor_hint = self._lbl(p, "", fg=BAD, font=self.fonts.body, justify="left",
+                                         anchor="w", wraplength=int(440 * self.px))
+        self.lbl_sensor_hint.pack(fill="x", pady=(8, 0))
+        self._lbl(p, f"Najednou nejvýš {MAX_CHANNELS} senzorů. Trenažér vysílá výkon jako Trenažér "
+                     "i jako Powermetr se stejným ID, stačí vybrat jeden.",
+                  anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(6, 0))
+
+    # --- Ventilátor
+    def _page_fan(self, p):
+        self._page_head(p, "Ventilátor", "Xiaomi Smart Fan 2 Lite v lokální Wi-Fi. IP adresu a token "
+                                         "získáte podle README.")
+        g = tk.Frame(p, bg=BG)
+        g.pack(fill="x")
+        g.columnconfigure(1, weight=1)
+        ttk.Label(g, text="IP adresa").grid(row=0, column=0, sticky="w", pady=3)
+        self.e_ip = ttk.Entry(g, width=24)
         self.e_ip.insert(0, self.cfg.fan.ip)
-        self.e_ip.grid(row=0, column=1, sticky="ew", pady=2)
-        ttk.Label(box, text="Token").grid(row=1, column=0, sticky="w")
-        self.e_token = ttk.Entry(box, show="•")
+        self.e_ip.grid(row=0, column=1, sticky="w", pady=3, padx=(10, 0))
+        ttk.Label(g, text="Token").grid(row=1, column=0, sticky="w", pady=3)
+        self.e_token = ttk.Entry(g, show="•", width=40)
         self.e_token.insert(0, self.cfg.fan.token)
-        self.e_token.grid(row=1, column=1, sticky="ew", pady=2)
-        ttk.Label(box, text="Počet stupňů").grid(row=2, column=0, sticky="w")
-        self.sp_levels = ttk.Spinbox(box, from_=1, to=5, width=5)
+        self.e_token.grid(row=1, column=1, sticky="w", pady=3, padx=(10, 0))
+        ttk.Label(g, text="Počet stupňů").grid(row=2, column=0, sticky="w", pady=3)
+        self.sp_levels = ttk.Spinbox(g, from_=1, to=5, width=5)
         self.sp_levels.set(self.cfg.fan.max_level)
-        self.sp_levels.grid(row=2, column=1, sticky="w", pady=2)
-        quiet = ttk.Frame(box)
-        quiet.grid(row=3, column=0, columnspan=2, sticky="w")
+        self.sp_levels.grid(row=2, column=1, sticky="w", pady=3, padx=(10, 0))
         self.mute_var = tk.BooleanVar(value=self.cfg.fan.mute_buzzer)
         self.light_var = tk.BooleanVar(value=self.cfg.fan.light_off)
-        ttk.Checkbutton(quiet, text="Vypnout pípání", variable=self.mute_var,
-                        command=self.on_fan_save).pack(side="left")
-        ttk.Checkbutton(quiet, text="Vypnout podsvícení", variable=self.light_var,
-                        command=self.on_fan_save).pack(side="left", padx=8)
-        bf = ttk.Frame(box)
-        bf.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        ttk.Checkbutton(p, text="Vypnout pípání", variable=self.mute_var,
+                        command=self.on_fan_save).pack(anchor="w", pady=(10, 0))
+        ttk.Checkbutton(p, text="Vypnout podsvícení", variable=self.light_var,
+                        command=self.on_fan_save).pack(anchor="w")
+        bf = tk.Frame(p, bg=BG)
+        bf.pack(fill="x", pady=(12, 0))
         ttk.Button(bf, text="Uložit a připojit", command=self.on_fan_save).pack(side="left")
-        ttk.Button(bf, text="Test", command=self.on_fan_test).pack(side="left", padx=6)
-        self.fan_status = tk.StringVar(value="nepřipojeno")
-        self.lbl_fan_status = ttk.Label(box, textvariable=self.fan_status, foreground="#868e96",
-                                        wraplength=260)
-        self.lbl_fan_status.grid(row=5, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ttk.Button(bf, text="Vyzkoušet", command=self.on_fan_test).pack(side="left", padx=8)
+        self.lbl_fan_status = self._lbl(p, "", font=self.fonts.body, anchor="w", justify="left",
+                                        wraplength=int(440 * self.px))
+        self.lbl_fan_status.pack(fill="x", pady=(10, 0))
 
-    def _build_control_box(self, parent):
+    # --- Řízení
+    def _page_control(self, p):
         c = self.cfg.control
-        box = ttk.LabelFrame(parent, text="Řízení ventilátoru", padding=8)
-        box.pack(fill="both", expand=True, pady=(8, 0))
+        self._page_head(p, "Řízení", "Podle čeho a od jakých hodnot ventilátor přidává.")
+        self._lbl(p, "Řídit podle", fg=TEXT, font=self.fonts.body_b, anchor="w").pack(fill="x", pady=(0, 6))
+        cards = tk.Frame(p, bg=BG)
+        cards.pack(fill="x")
+        cards.columnconfigure(0, weight=1, uniform="card")
+        cards.columnconfigure(1, weight=1, uniform="card")
+        self.mode_cards = {}
+        for i, (key, title, desc) in enumerate(MODE_CARDS):
+            card = ChoiceCard(cards, title, desc, lambda k=key: self.on_source(k), self.fonts)
+            card.grid(row=i // 2, column=i % 2, sticky="nsew", padx=(0 if i % 2 == 0 else 4, 0 if i % 2 else 4), pady=4)
+            self.mode_cards[key] = card
+        self._update_cards()
 
-        mode = ttk.Frame(box)
-        mode.pack(fill="x")
-        self.auto_var = tk.BooleanVar(value=self.cfg.auto_mode)
-        ttk.Radiobutton(mode, text="Automaticky", variable=self.auto_var, value=True,
-                        command=self.on_mode).pack(side="left")
-        ttk.Radiobutton(mode, text="Ručně", variable=self.auto_var, value=False,
-                        command=self.on_mode).pack(side="left", padx=8)
-        man = ttk.Frame(box)
-        man.pack(fill="x", pady=(4, 6))
-        self.manual_buttons = []
-        for lvl in range(self.cfg.fan.max_level + 1):
-            b = ttk.Button(man, text="Vyp" if lvl == 0 else str(lvl), width=4,
-                           command=lambda l=lvl: self.on_manual(l))
-            b.pack(side="left", padx=1)
-            self.manual_buttons.append(b)
+        base = tk.Frame(p, bg=BG)
+        base.pack(fill="x", pady=(14, 8))
+        ttk.Label(base, text="FTP").pack(side="left")
+        self.e_ftp = self._entry(base, c.ftp)
+        self.e_ftp.pack(side="left", padx=(6, 4))
+        self._lbl(base, "W").pack(side="left", padx=(0, 18))
+        ttk.Label(base, text="Max. tep").pack(side="left")
+        self.e_hrmax = self._entry(base, c.hr_max)
+        self.e_hrmax.pack(side="left", padx=(6, 4))
+        self._lbl(base, "bpm").pack(side="left")
 
-        ttk.Label(box, text="Řídit podle").pack(anchor="w")
-        self.cb_source = ttk.Combobox(box, values=list(SOURCE_MODES.values()), state="readonly")
-        self.cb_source.set(SOURCE_MODES.get(c.source_mode, SOURCE_MODES["smart"]))
-        self.cb_source.pack(fill="x", pady=(0, 6))
-        self.cb_source.bind("<<ComboboxSelected>>", lambda e: self.on_apply())
-
-        nb = ttk.Notebook(box)
-        nb.pack(fill="both", expand=True)
-        tab_thr = ttk.Frame(nb, padding=6)
-        tab_beh = ttk.Frame(nb, padding=6)
-        nb.add(tab_thr, text="Prahy")
-        nb.add(tab_beh, text="Chování")
-
-        # --- záložka Prahy
+        tm = tk.Frame(p, bg=BG)
+        tm.pack(fill="x", pady=(0, 6))
         self.thr_mode = tk.StringVar(value=c.threshold_mode)
-        tm = ttk.Frame(tab_thr)
-        tm.pack(fill="x")
-        ttk.Radiobutton(tm, text="% FTP / % max. tepu", variable=self.thr_mode, value="relative",
+        ttk.Label(tm, text="Prahy v").pack(side="left", padx=(0, 8))
+        ttk.Radiobutton(tm, text="% FTP a % max. tepu", variable=self.thr_mode, value="relative",
                         command=self.on_thr_mode).pack(side="left")
-        ttk.Radiobutton(tm, text="W / bpm", variable=self.thr_mode, value="absolute",
-                        command=self.on_thr_mode).pack(side="left", padx=8)
-        base = ttk.Frame(tab_thr)
-        base.pack(fill="x", pady=(4, 0))
-        ttk.Label(base, text="FTP (W)").grid(row=0, column=0, sticky="w")
-        self.e_ftp = self._num_entry(base, c.ftp, 0, 1)
-        ttk.Label(base, text="Max. tep").grid(row=0, column=2, sticky="w", padx=(8, 0))
-        self.e_hrmax = self._num_entry(base, c.hr_max, 0, 3)
-        for e in (self.e_ftp, self.e_hrmax):
-            e.bind("<KeyRelease>", lambda ev: self._update_thr_hints())
+        ttk.Radiobutton(tm, text="W a bpm", variable=self.thr_mode, value="absolute",
+                        command=self.on_thr_mode).pack(side="left", padx=10)
 
-        grid = ttk.Frame(tab_thr)
-        grid.pack(fill="x", pady=(6, 0))
-        ttk.Label(grid, text="Stupeň od", style="Head.TLabel").grid(row=0, column=0, sticky="w")
-        self.lbl_phead = ttk.Label(grid, style="Head.TLabel", foreground=COL_POWER)
-        self.lbl_phead.grid(row=0, column=1)
-        self.lbl_hhead = ttk.Label(grid, style="Head.TLabel", foreground=COL_HR)
-        self.lbl_hhead.grid(row=0, column=2)
-        self.e_pthr, self.e_hthr, self.lbl_hints = [], [], []
-        n = self.cfg.fan.max_level
-        for i in range(n):
-            ttk.Label(grid, text=f"  {i + 1}").grid(row=i + 1, column=0, sticky="w")
-            ep = ttk.Entry(grid, width=6, justify="center")
-            ep.grid(row=i + 1, column=1, padx=3, pady=1)
-            eh = ttk.Entry(grid, width=6, justify="center")
-            eh.grid(row=i + 1, column=2, padx=3, pady=1)
-            hint = ttk.Label(grid, foreground="#868e96")
-            hint.grid(row=i + 1, column=3, sticky="w")
-            for e in (ep, eh):
-                e.bind("<KeyRelease>", lambda ev: self._update_thr_hints())
+        grid = tk.Frame(p, bg=BG)
+        grid.pack(fill="x")
+        for col, text in enumerate(("Stupeň", "Výkon", "", "Tep", "")):
+            self._lbl(grid, text, anchor="w").grid(row=0, column=col, sticky="w", padx=(0, 6), pady=(0, 2))
+        self.e_pthr, self.e_hthr, self.lbl_phints, self.lbl_hhints = [], [], [], []
+        self.lbl_punits, self.lbl_hunits = [], []
+        for i in range(self.cfg.fan.max_level):
+            r = i + 1
+            ttk.Label(grid, text=str(r)).grid(row=r, column=0, sticky="w", pady=2)
+            fp = tk.Frame(grid, bg=BG)
+            fp.grid(row=r, column=1, sticky="w")
+            ep = self._entry(fp, 0)
+            ep.pack(side="left")
+            up = self._lbl(fp, "%")
+            up.pack(side="left", padx=(4, 0))
+            hp = self._lbl(grid, "", anchor="w", width=9)
+            hp.grid(row=r, column=2, sticky="w", padx=(4, 18))
+            fh = tk.Frame(grid, bg=BG)
+            fh.grid(row=r, column=3, sticky="w")
+            eh = self._entry(fh, 0)
+            eh.pack(side="left")
+            uh = self._lbl(fh, "%")
+            uh.pack(side="left", padx=(4, 0))
+            hh = self._lbl(grid, "", anchor="w", width=9)
+            hh.grid(row=r, column=4, sticky="w", padx=(4, 0))
             self.e_pthr.append(ep)
             self.e_hthr.append(eh)
-            self.lbl_hints.append(hint)
-        r = n + 1
-        ttk.Label(grid, text="Hystereze").grid(row=r, column=0, sticky="w", pady=(6, 1))
-        self.e_physt = self._num_entry(grid, c.power_hysteresis, r, 1)
-        self.e_hhyst = self._num_entry(grid, c.hr_hysteresis, r, 2)
-        ttk.Label(grid, text="W / bpm", foreground="#868e96").grid(row=r, column=3, sticky="w")
-        ttk.Label(grid, text="Vyhlazení s").grid(row=r + 1, column=0, sticky="w")
-        self.e_psmooth = self._num_entry(grid, c.power_smoothing_s, r + 1, 1)
-        self.e_hsmooth = self._num_entry(grid, c.hr_smoothing_s, r + 1, 2)
+            self.lbl_phints.append(hp)
+            self.lbl_hhints.append(hh)
+            self.lbl_punits.append(up)
+            self.lbl_hunits.append(uh)
         self._thr_shown = c.threshold_mode
         self._fill_thr_entries()
+        self.lbl_ctrl_err = self._lbl(p, "", fg=BAD, font=self.fonts.body, anchor="w")
+        self.lbl_ctrl_err.pack(fill="x", pady=(8, 0))
+        self._lbl(p, "Změny se ukládají hned. Hystereze, vyhlazení a dofukování jsou v Chování.",
+                  anchor="w").pack(fill="x", pady=(2, 0))
 
-        # --- záložka Chování
-        beh = tab_beh
-        ttk.Label(beh, text="Prodleva před snížením (s)").grid(row=0, column=0, sticky="w")
-        self.e_delay = self._num_entry(beh, c.down_delay_s, 0, 1)
-        ttk.Separator(beh).grid(row=1, column=0, columnspan=2, sticky="ew", pady=6)
-        ttk.Label(beh, text="Dofukování po tréninku (min)").grid(row=2, column=0, sticky="w")
-        self.e_cool_min = self._num_entry(beh, round(c.cooldown_s / 60, 1), 2, 1)
-        ttk.Label(beh, text="…na stupni").grid(row=3, column=0, sticky="w")
-        self.e_cool_lvl = self._num_entry(beh, c.cooldown_level, 3, 1)
-        ttk.Separator(beh).grid(row=4, column=0, columnspan=2, sticky="ew", pady=6)
-        ttk.Label(beh, text="Bez dat ze senzorů → stupeň").grid(row=5, column=0, sticky="w")
-        self.e_nodata_lvl = self._num_entry(beh, c.no_data_level, 5, 1)
-        ttk.Label(beh, text="…po (s)").grid(row=6, column=0, sticky="w")
-        self.e_nodata_s = self._num_entry(beh, c.no_data_s, 6, 1)
-        ttk.Label(beh, foreground="#868e96", wraplength=250, justify="left",
-                  text="Chytrý režim: výkon stupeň hned zvýší, tep ho podrží, dokud neklesne – "
-                       "ventilátor tak nezpomalí při krátkém odpočinku mezi intervaly."
-                  ).grid(row=7, column=0, columnspan=2, sticky="w", pady=(8, 0))
+    # --- Chování
+    def _page_behavior(self, p):
+        c = self.cfg.control
+        self._page_head(p, "Chování", "Jak rychle ventilátor reaguje a co dělá po tréninku.")
+        g = tk.Frame(p, bg=BG)
+        g.pack(fill="x")
+        rows = [
+            ("Hystereze výkonu", c.power_hysteresis, "W", "e_physt"),
+            ("Hystereze tepu", c.hr_hysteresis, "bpm", "e_hhyst"),
+            ("Vyhlazení výkonu", c.power_smoothing_s, "s", "e_psmooth"),
+            ("Vyhlazení tepu", c.hr_smoothing_s, "s", "e_hsmooth"),
+            ("Prodleva před snížením", c.down_delay_s, "s", "e_delay"),
+            ("Dofukování po tréninku", round(c.cooldown_s / 60, 1), "min", "e_cool_min"),
+            ("…na stupni", c.cooldown_level, "", "e_cool_lvl"),
+            ("Bez dat ze senzorů stupeň", c.no_data_level, "", "e_nodata_lvl"),
+            ("…po", c.no_data_s, "s", "e_nodata_s"),
+        ]
+        for i, (label, val, unit, attr) in enumerate(rows):
+            ttk.Label(g, text=label).grid(row=i, column=0, sticky="w", pady=2)
+            e = self._entry(g, val)
+            e.grid(row=i, column=1, sticky="w", padx=10, pady=2)
+            self._lbl(g, unit).grid(row=i, column=2, sticky="w")
+            setattr(self, attr, e)
+        self.lbl_beh_err = self._lbl(p, "", fg=BAD, font=self.fonts.body, anchor="w")
+        self.lbl_beh_err.pack(fill="x", pady=(8, 0))
+        self._lbl(p, "Hystereze: stupeň klesne, až hodnota spadne o tolik pod práh. Prodleva: jak dlouho "
+                     "musí být pod prahem. Chytrý režim navíc drží stupeň podle tepu, takže ventilátor "
+                     "nezpomalí v krátkém odpočinku mezi intervaly.",
+                  anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(4, 0))
 
-        ttk.Button(box, text="Použít a uložit", command=self.on_apply).pack(anchor="e", pady=(8, 0))
+    # --- Diagnostika
+    def _page_diag(self, p):
+        self._page_head(p, "Diagnostika", "Když něco nefunguje.")
+        self._lbl(p, "Stav donglu", fg=TEXT, font=self.fonts.body_b, anchor="w").pack(fill="x")
+        self.lbl_diag_status = self._lbl(p, "", font=self.fonts.body, anchor="w", justify="left",
+                                         wraplength=int(440 * self.px))
+        self.lbl_diag_status.pack(fill="x", pady=(2, 6))
+        ttk.Button(p, text="Resetovat dongle", command=self.on_reset).pack(anchor="w")
+        self._lbl(p, "Uvolní dongle a provede USB reset, jako byste ho vytáhli a znovu zapojili.",
+                  anchor="w").pack(fill="x", pady=(2, 12))
+        self._lbl(p, "Příjem senzorů", fg=TEXT, font=self.fonts.body_b, anchor="w").pack(fill="x")
+        self.lbl_diag_rx = self._lbl(p, "", font=self.fonts.body, anchor="w", justify="left",
+                                     wraplength=int(440 * self.px))
+        self.lbl_diag_rx.pack(fill="x", pady=(2, 12))
+        ttk.Button(p, text="Otevřít složku s logem", command=self.on_open_logs).pack(anchor="w")
+        self._lbl(p, "Soubor antfan.log pošlete, když chcete poradit s problémem. Token v něm není.",
+                  anchor="w").pack(fill="x", pady=(2, 12))
+        ttk.Checkbutton(p, text="Simulace (bez donglu a ventilátoru)", variable=self.sim_var,
+                        command=self.on_sim_toggle).pack(anchor="w")
+        self._lbl(p, f"AntFan {__version__}", fg=FAINT, anchor="w").pack(fill="x", pady=(14, 0))
 
-    # --- prahy: přepínání % / absolutně
+    # ============================================================ prahy
     def _thr_lists(self, mode):
         c = self.cfg.control
         return (c.power_pct, c.hr_pct) if mode == "relative" else (c.power_thresholds, c.hr_thresholds)
@@ -315,8 +555,10 @@ class App:
             e.delete(0, "end")
             e.insert(0, str(v))
         rel = self._thr_shown == "relative"
-        self.lbl_phead.configure(text="Výkon % FTP" if rel else "Výkon W")
-        self.lbl_hhead.configure(text="Tep % max" if rel else "Tep bpm")
+        for u in self.lbl_punits:
+            u.configure(text="%" if rel else "W")
+        for u in self.lbl_hunits:
+            u.configure(text="%" if rel else "bpm")
         state = "normal" if rel else "disabled"
         self.e_ftp.configure(state=state)
         self.e_hrmax.configure(state=state)
@@ -326,31 +568,36 @@ class App:
         pth = [int(e.get()) for e in self.e_pthr]
         hth = [int(e.get()) for e in self.e_hthr]
         if pth != sorted(pth) or hth != sorted(hth):
-            raise ValueError("Prahy musí být vzestupně (stupeň 1 < 2 < 3).")
+            raise ValueError("Prahy musí stoupat: stupeň 1 < 2 < 3.")
         if min(pth + hth) <= 0:
             raise ValueError("Prahy musí být kladné.")
         return pth, hth
 
     def _update_thr_hints(self):
-        if self._thr_shown != "relative":
-            for h in self.lbl_hints:
-                h.configure(text="")
-            return
+        rel = self._thr_shown == "relative"
         try:
             ftp, hrmax = int(self.e_ftp.get()), int(self.e_hrmax.get())
         except ValueError:
-            return
-        for ep, eh, h in zip(self.e_pthr, self.e_hthr, self.lbl_hints):
+            ftp = hrmax = None
+        for ep, eh, hp, hh in zip(self.e_pthr, self.e_hthr, self.lbl_phints, self.lbl_hhints):
+            if not rel or ftp is None:
+                hp.configure(text="")
+                hh.configure(text="")
+                continue
             try:
-                h.configure(text=f"≈ {round(ftp * int(ep.get()) / 100)} W · {round(hrmax * int(eh.get()) / 100)} bpm")
+                hp.configure(text=f"≈ {round(ftp * int(ep.get()) / 100)} W")
             except ValueError:
-                h.configure(text="")
+                hp.configure(text="")
+            try:
+                hh.configure(text=f"≈ {round(hrmax * int(eh.get()) / 100)} bpm")
+            except ValueError:
+                hh.configure(text="")
 
     def on_thr_mode(self):
         new = self.thr_mode.get()
         if new == self._thr_shown:
             return
-        try:  # zapamatovat si hodnoty původního režimu
+        try:  # zapamatovat hodnoty původního režimu
             pth, hth = self._read_thr_entries()
             pl, hl = self._thr_lists(self._thr_shown)
             pl[:], hl[:] = pth, hth
@@ -358,16 +605,61 @@ class App:
             pass
         self._thr_shown = new
         self._fill_thr_entries()
+        self.on_apply()
 
-    @staticmethod
-    def _num_entry(parent, value, row, col):
-        e = ttk.Entry(parent, width=7, justify="center")
-        v = int(value) if float(value).is_integer() else value
-        e.insert(0, str(v))
-        e.grid(row=row, column=col, padx=4, pady=1)
-        return e
+    def on_source(self, key):
+        self.source_mode = key
+        self._update_cards()
+        self.on_apply()
 
-    # ------------------------------------------------------------- backends
+    def _update_cards(self):
+        for k, card in self.mode_cards.items():
+            card.set_selected(k == self.source_mode)
+
+    def _schedule_apply(self):
+        self._update_thr_hints()
+        if self._apply_job is not None:
+            self.root.after_cancel(self._apply_job)
+        self._apply_job = self.root.after(700, self.on_apply)
+
+    def on_apply(self) -> bool:
+        self._apply_job = None
+        c = self.cfg.control
+        n = self.cfg.fan.max_level
+        try:
+            pth, hth = self._read_thr_entries()
+            mode = self.thr_mode.get()
+            if mode == "relative":
+                if max(pth) > 200 or max(hth) > 100:
+                    raise ValueError("Výkon nejvýš 200 % FTP, tep nejvýš 100 % max. tepu.")
+                c.power_pct, c.hr_pct = pth, hth
+            else:
+                c.power_thresholds, c.hr_thresholds = pth, hth
+            c.threshold_mode = mode
+            c.ftp = max(50, int(self.e_ftp.get()))
+            c.hr_max = max(100, min(240, int(self.e_hrmax.get())))
+            c.power_hysteresis = int(self.e_physt.get())
+            c.hr_hysteresis = int(self.e_hhyst.get())
+            c.power_smoothing_s = max(1.0, float(self.e_psmooth.get().replace(",", ".")))
+            c.hr_smoothing_s = max(1.0, float(self.e_hsmooth.get().replace(",", ".")))
+            c.down_delay_s = max(0.0, float(self.e_delay.get().replace(",", ".")))
+            c.cooldown_s = max(0.0, float(self.e_cool_min.get().replace(",", ".")) * 60)
+            c.cooldown_level = max(0, min(n, int(self.e_cool_lvl.get())))
+            c.no_data_level = max(0, min(n, int(self.e_nodata_lvl.get())))
+            c.no_data_s = max(5.0, float(self.e_nodata_s.get().replace(",", ".")))
+        except ValueError as e:
+            msg = str(e) if "Prahy" in str(e) or "nejvýš" in str(e) else "Zadejte čísla."
+            self.lbl_ctrl_err.configure(text=f"Neuloženo: {msg}")
+            self.lbl_beh_err.configure(text=f"Neuloženo: {msg}")
+            return False
+        c.source_mode = self.source_mode
+        config_mod.save(self.cfg)
+        self.lbl_ctrl_err.configure(text="")
+        self.lbl_beh_err.configure(text="")
+        self._update_thr_hints()
+        return True
+
+    # ============================================================ backendy
     def _make_backend(self):
         if self.backend is not None:
             try:
@@ -390,16 +682,23 @@ class App:
                 self._set_fan_status(str(e), False)
         else:
             self.fan_worker.configure(None)
-            self._set_fan_status("Zadejte IP adresu a token ventilátoru", False)
+            self._set_fan_status("Zadejte IP adresu a token ventilátoru.", False)
 
     def _set_fan_status(self, text, ok):
-        self.fan_status.set(text)
-        self.lbl_fan_status.configure(foreground="#2b8a3e" if ok else "#c92a2a")
+        self.fan_status_text, self.fan_ok = text, ok
+        self.lbl_fan_status.configure(text=text, fg=OK if ok else BAD)
 
-    # -------------------------------------------------------------- akce
+    # ============================================================ akce
+    def on_run_toggle(self):
+        if self.backend.state in ("monitoring", "unplugged"):
+            self.on_stop()
+        else:
+            self.on_start()
+
     def on_scan(self):
         for k in [k for k in self.devices if k not in self.selected]:
             del self.devices[k]
+        self._ant_error = False
         self._refresh_tree()
         self.controller.reset()
         self.backend.start_scan(self.cfg.scan_duration_s)
@@ -407,8 +706,11 @@ class App:
     def on_start(self):
         devs = [self.devices[k] for k in self.selected if k in self.devices]
         if not devs:
-            messagebox.showinfo("AntFan", "Nejdřív vyhledejte senzory a kliknutím vyberte tepový pás a/nebo powermetr.")
+            self.open_settings("sensors")
+            self.lbl_sensor_hint.configure(text="Nejdřív vyhledejte senzory a kliknutím vyberte "
+                                                "tepový pás a trenažér nebo powermetr.")
             return
+        self._ant_error = False
         self.controller.reset()
         self.history.clear()
         self.backend.start_monitor(devs)
@@ -417,8 +719,17 @@ class App:
         self.backend.stop()
 
     def on_reset(self):
-        """Uvolní dongle a provede USB reset (jako vytažení a zapojení)."""
         self.backend.reset()
+
+    def on_open_logs(self):
+        d = str(config_mod.app_dir())
+        try:
+            if sys.platform == "win32":
+                os.startfile(d)  # noqa: S606
+            else:
+                subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", d])
+        except Exception as e:  # noqa: BLE001
+            messagebox.showinfo("AntFan", f"Log je ve složce:\n{d}\n\n({e})")
 
     def on_sim_toggle(self):
         self.cfg.simulation = self.sim_var.get()
@@ -437,7 +748,7 @@ class App:
         if key in self.selected:
             self.selected.discard(key)
         elif len(self.selected) >= MAX_CHANNELS:
-            messagebox.showwarning("AntFan", f"Maximálně {MAX_CHANNELS} senzorů.")
+            self.lbl_sensor_hint.configure(text=f"Najednou nejvýš {MAX_CHANNELS} senzorů.")
             return
         else:
             self.selected.add(key)
@@ -465,7 +776,7 @@ class App:
     def on_fan_test(self):
         self.on_fan_save()
         if self.sim_var.get():
-            self._set_fan_status("simulace – OK", True)
+            self._set_fan_status("Simulace: OK", True)
             return
         f = self.cfg.fan
 
@@ -474,59 +785,29 @@ class App:
                 fan = XiaomiFan(f)
                 info = fan.info()
                 power, level = fan.get_state()
-                msg = (f"OK: {info.get('model', '?')} (fw {info.get('fw_ver', '?')}), "
-                       f"{'zapnuto' if power else 'vypnuto'}, stupeň {level}")
+                msg = (f"Ventilátor odpovídá: {info.get('model', '?')} (firmware {info.get('fw_ver', '?')}), "
+                       f"{'zapnutý' if power else 'vypnutý'}, stupeň {level}.")
                 self.events.put(("fan", True, msg, level if power else 0))
             except Exception as e:  # noqa: BLE001
                 self.events.put(("fan", False, str(e), None))
 
-        import threading
         threading.Thread(target=run, daemon=True).start()
-        self._set_fan_status("testuji…", True)
+        self._set_fan_status("Zkouším spojení…", True)
 
-    def on_mode(self):
+    def on_segment(self, key):
+        if key == "auto":
+            self.auto_var.set(True)
+        else:
+            self.auto_var.set(False)
+            self.manual_level = int(key)
         self.cfg.auto_mode = self.auto_var.get()
         config_mod.save(self.cfg)
+        self._update_segment()
 
-    def on_manual(self, level):
-        self.auto_var.set(False)
-        self.cfg.auto_mode = False
-        self.manual_level = level
-        config_mod.save(self.cfg)
+    def _update_segment(self):
+        self.seg.set("auto" if self.auto_var.get() else self.manual_level)
 
-    def on_apply(self):
-        c = self.cfg.control
-        n = self.cfg.fan.max_level
-        try:
-            pth, hth = self._read_thr_entries()
-            mode = self.thr_mode.get()
-            if mode == "relative":
-                if max(pth) > 200 or max(hth) > 100:
-                    raise ValueError("Procenta: výkon max. 200 % FTP, tep max. 100 % max. tepu.")
-                c.power_pct, c.hr_pct = pth, hth
-            else:
-                c.power_thresholds, c.hr_thresholds = pth, hth
-            c.threshold_mode = mode
-            c.ftp = max(50, int(self.e_ftp.get()))
-            c.hr_max = max(100, min(240, int(self.e_hrmax.get())))
-            c.power_hysteresis = int(self.e_physt.get())
-            c.hr_hysteresis = int(self.e_hhyst.get())
-            c.power_smoothing_s = max(1.0, float(self.e_psmooth.get()))
-            c.hr_smoothing_s = max(1.0, float(self.e_hsmooth.get()))
-            c.down_delay_s = max(0.0, float(self.e_delay.get()))
-            c.cooldown_s = max(0.0, float(self.e_cool_min.get().replace(",", ".")) * 60)
-            c.cooldown_level = max(0, min(n, int(self.e_cool_lvl.get())))
-            c.no_data_level = max(0, min(n, int(self.e_nodata_lvl.get())))
-            c.no_data_s = max(5.0, float(self.e_nodata_s.get()))
-        except ValueError as e:
-            messagebox.showerror("AntFan", f"Neplatná hodnota: {e}")
-            return
-        label = self.cb_source.get()
-        c.source_mode = next((k for k, v in SOURCE_MODES.items() if v == label), "smart")
-        config_mod.save(self.cfg)
-        self._update_thr_hints()
-
-    # ------------------------------------------------------------- smyčka
+    # ============================================================ smyčka
     def _poll_events(self):
         tree_dirty = False
         try:
@@ -534,9 +815,12 @@ class App:
                 ev = self.events.get_nowait()
                 kind = ev[0]
                 if kind == "ant_status":
-                    self.ant_status.set(ev[1])
+                    self.ant_status_full = ev[1]
+                    self.lbl_scan.configure(text=ev[1] if self.backend.state == "scanning" or
+                                            "Vyhledávání" in ev[1] else "")
                 elif kind == "ant_error":
-                    self.ant_status.set("Chyba ANT+")
+                    self._ant_error = True
+                    self.ant_status_full = ev[1]
                     messagebox.showerror("ANT+", ev[1])
                 elif kind == "found":
                     d: FoundDevice = ev[1]
@@ -604,51 +888,121 @@ class App:
                 self.tree.insert("", idx, iid=iid, values=values, tags=tags)
         for iid in existing:
             self.tree.delete(iid)
+
+        # příjem v okně jízdy
+        items = []
+        for key, q in rxq.items():
+            d = self.devices.get(key)
+            name = d.type_name if d else str(key[0])
+            items.append((f"{name}  {'…' if q is None else f'{q} %'}", BAD if q is not None and q < 80 else MUTED))
+        while len(self.rx_labels) < len(items):
+            lb = self._lbl(self.rx_box, "", font=self.fonts.body)
+            lb.pack(side="left", padx=(14, 0))
+            self.rx_labels.append(lb)
+        for i, lb in enumerate(self.rx_labels):
+            if i < len(items):
+                lb.configure(text=items[i][0], fg=items[i][1])
+            else:
+                lb.configure(text="")
+
         hints = []
         try:
             all_n, single = self.backend.rx_diagnosis() if self.backend is not None else (0, {})
         except Exception:  # noqa: BLE001
             all_n, single = 0, {}
         if all_n >= 2:
-            hints.append(f"Výpadky na VŠECH senzorech zároveň ({all_n}× za 5 min) → příčina je "
-                         "v PC: zkuste jiný USB port (USB 2.0, ne hub), prodlužovačku, jiný dongle; "
-                         "router/ventilátor dál od donglu.")
+            hints.append(f"Výpadky na všech senzorech zároveň ({all_n}× za 5 min). Příčina je v PC: "
+                         "zkuste jiný USB port (USB 2.0, ne hub), prodlužovačku nebo jiný dongle.")
         if single:
             who = ", ".join(f"{k} {n}×" for k, n in single.items())
-            hints.append(f"Vypadává jen {who} (za 5 min), ostatní senzory jdou → příčina je "
-                         "u senzoru: jeho Bluetooth spojení s Rouvy, baterie, kontakt pásu.")
+            hints.append(f"Vypadává jen {who} za 5 min, ostatní senzory jdou. Příčina je u senzoru: "
+                         "Bluetooth spojení s Rouvy, baterie, kontakt pásu.")
         if weak and not hints:
-            hints.append("Slabý příjem: " + ", ".join(weak) + ". Dejte dongle blíž ke kolu "
-                         "(USB prodlužovačka, ne do zadního USB 3.0 portu).")
-        self.rx_hint.set("\n".join(hints))
+            hints.append("Slabý příjem: " + ", ".join(weak) + ". Dejte dongle blíž ke kolu.")
+        text = "\n".join(hints)
+        if self.lbl_ride_hint.cget("text") != text:
+            self.lbl_ride_hint.configure(text=text)
+        if self.lbl_sensor_hint.cget("text") != text and (text or self.lbl_sensor_hint.cget("fg") == BAD):
+            self.lbl_sensor_hint.configure(text=text)
+        if rxq:
+            self.lbl_diag_rx.configure(text=text or "Bez výpadků za posledních 5 minut.")
+        else:
+            self.lbl_diag_rx.configure(text="Měření neběží.")
+
+    def _status_short(self):
+        st = self.backend.state
+        n = len(self.selected)
+        if st == "monitoring":
+            return f"Měřím · {n} {_plural_senzor(n)}", OK
+        if st == "scanning":
+            return "Hledám senzory…", ACCENT
+        if st == "unplugged":
+            return "Dongle odpojen", BAD
+        if self._ant_error:
+            return "Chyba ANT+", BAD
+        return ("Simulace" if self.sim_var.get() else "Připraveno"), FAINT
+
+    def _reason_text(self, ctrl, desired):
+        c = self.cfg.control
+        n = self.cfg.fan.max_level
+        if not self.auto_var.get():
+            return "ručně"
+        if self.backend.state != "monitoring":
+            return "čeká na měření"
+        r = ctrl.reason
+        pl, hl = c.power_levels()[:n], c.hr_levels()[:n]
+        if r == "výkon" and pl:
+            return f"výkon nad prahem {pl[desired - 1]} W" if desired > 0 else f"výkon pod prahem {pl[0]} W"
+        if r == "tep" and hl:
+            return f"tep nad prahem {hl[desired - 1]} bpm" if desired > 0 else f"tep pod prahem {hl[0]} bpm"
+        return r
 
     def _tick(self):
         now = time.monotonic()
         ctrl = self.controller
         auto_level = ctrl.tick(now)
-        if self.auto_var.get():
-            desired, info = auto_level, ctrl.reason
-        else:
-            desired, info = self.manual_level, "ručně"
+        desired = auto_level if self.auto_var.get() else self.manual_level
         if self.backend.state == "monitoring" or not self.auto_var.get():
             self.fan_worker.set_desired(desired)
         else:
             self.fan_worker.set_desired(None)
-            info = "čeká na měření"
 
-        self.v_power.set("–" if ctrl.power_now is None else str(ctrl.power_now))
-        self.v_power_avg.set("" if ctrl.power_smoothed is None else
-                             f"průměr {self.cfg.control.power_smoothing_s:g} s: {ctrl.power_smoothed:.0f} W"
-                             + (f" ({ctrl.power_smoothed / self.cfg.control.ftp * 100:.0f} % FTP)"
-                                if self.cfg.control.ftp else "")
-                             + (f" · {ctrl.cadence_now} rpm" if ctrl.cadence_now else "")
-                             + (f" · ⚠ výpadek příjmu {ctrl.power_gap_s:.0f} s" if ctrl.power_gap_s else ""))
-        self.v_hr.set("–" if ctrl.hr_now is None else str(ctrl.hr_now))
-        self.v_hr_avg.set("" if ctrl.hr_smoothed is None else
-                          f"průměr {self.cfg.control.hr_smoothing_s:g} s: {ctrl.hr_smoothed:.0f}")
-        self.v_fan.set("Vyp" if desired == 0 else str(desired))
-        actual = "" if self.fan_actual is None else f" · skutečně: {'Vyp' if self.fan_actual == 0 else self.fan_actual}"
-        self.v_fan_info.set(info + actual)
+        c = self.cfg.control
+        p = ctrl.power_smoothed
+        self.t_power["big"].configure(text="–" if p is None else f"{p:.0f}")
+        self.t_power["head"].configure(text=f"Výkon · průměr {c.power_smoothing_s:g} s")
+        sub = []
+        if p is not None and c.ftp:
+            sub.append(f"{p / c.ftp * 100:.0f} % FTP")
+        if ctrl.cadence_now:
+            sub.append(f"{ctrl.cadence_now} rpm")
+        if ctrl.power_gap_s:
+            sub.append(f"výpadek příjmu {ctrl.power_gap_s:.0f} s")
+        self.t_power["sub"].configure(text=" · ".join(sub), fg=BAD if ctrl.power_gap_s else MUTED)
+        self.t_hr["big"].configure(text="–" if ctrl.hr_now is None else str(ctrl.hr_now))
+        self.t_hr["sub"].configure(text="" if ctrl.hr_now is None or not c.hr_max else
+                                   f"{ctrl.hr_now / c.hr_max * 100:.0f} % max")
+        self.t_fan["big"].configure(text="Vyp" if desired == 0 else str(desired))
+        self._draw_bars(desired)
+        reason = self._reason_text(ctrl, desired)
+        if self.fan_actual is not None and self.fan_worker is not None and self.fan_actual != desired \
+                and (self.backend.state == "monitoring" or not self.auto_var.get()):
+            reason += f" · ventilátor zatím na {'Vyp' if self.fan_actual == 0 else self.fan_actual}"
+        self.t_fan["sub"].configure(text=reason)
+
+        text, col = self._status_short()
+        self.st_ant.set(text, col)
+        if self.sim_var.get():
+            self.st_fan.set("Simulovaný ventilátor", FAINT)
+        else:
+            self.st_fan.set("Ventilátor připojen" if self.fan_ok else "Ventilátor nepřipojen",
+                            OK if self.fan_ok else BAD)
+        running = self.backend.state in ("monitoring", "unplugged")
+        want = "Zastavit" if running else "Spustit měření"
+        if self.btn_run.cget("text") != want:
+            self.btn_run.configure(text=want)
+        self.lbl_diag_status.configure(text=self.ant_status_full)
+        self._update_segment()
 
         if now - self._last_hist >= 1.0:
             self._last_hist = now
@@ -661,54 +1015,64 @@ class App:
         cv = self.canvas
         cv.delete("all")
         w, h = cv.winfo_width(), cv.winfo_height()
-        if w < 50 or h < 50:
+        if w < 80 or h < 60:
             return
-        pad_l, pad_r, pad_t, pad_b = 40, 40, 10, 22
+        s = self.px
+        pad_l, pad_r, pad_t, pad_b = int(36 * s), int(64 * s), int(8 * s), int(6 * s)
         pw, ph = w - pad_l - pad_r, h - pad_t - pad_b
         hist = list(self.history)
-        p_max = max([400] + [p for p, _, _ in hist if p is not None])
-        hr_lo, hr_hi = 60, 200
         n_lvl = max(1, self.cfg.fan.max_level)
+        thr = self.cfg.control.power_levels()[:n_lvl]
+        p_max = max([300, (max(thr) * 1.25 if thr else 0)] + [p for p, _, _ in hist if p is not None])
+        p_max = int((p_max + 49) // 50 * 50)
+        hr_lo, hr_hi = 60, 200
 
         def x_of(i):
             return pad_l + pw * (HISTORY_S - len(hist) + i) / (HISTORY_S - 1)
 
-        # pozadí = stupeň ventilátoru
-        for i, (_, _, lvl) in enumerate(hist):
+        def yp(v):
+            return pad_t + ph * (1 - max(0.0, min(1.0, v / p_max)))
+
+        # pozadí = stupeň ventilátoru (souvislé úseky)
+        i = 0
+        while i < len(hist):
+            lvl = hist[i][2]
+            j = i
+            while j + 1 < len(hist) and hist[j + 1][2] == lvl:
+                j += 1
             if lvl:
-                x0 = x_of(i)
-                x1 = x_of(i + 1) if i + 1 < len(hist) else x0 + pw / HISTORY_S
                 y0 = pad_t + ph * (1 - lvl / n_lvl)
-                cv.create_rectangle(x0, y0, x1 + 1, pad_t + ph, fill=COL_FAN, outline="")
-        # mřížka
-        for k in range(5):
-            y = pad_t + ph * k / 4
-            cv.create_line(pad_l, y, pad_l + pw, y, fill="#f1f3f5")
-            cv.create_text(pad_l - 4, y, text=f"{p_max * (1 - k / 4):.0f}", anchor="e",
-                           fill=COL_POWER, font=("Segoe UI", 8))
-            cv.create_text(pad_l + pw + 4, y, text=f"{hr_hi - (hr_hi - hr_lo) * k / 4:.0f}",
-                           anchor="w", fill=COL_HR, font=("Segoe UI", 8))
-        cv.create_text(pad_l, h - 4, text="−5 min", anchor="sw", fill="#868e96", font=("Segoe UI", 8))
-        cv.create_text(pad_l + pw, h - 4, text="teď", anchor="se", fill="#868e96", font=("Segoe UI", 8))
-        cv.create_text(pad_l + pw / 2, h - 4, text="W (vlevo) · bpm (vpravo) · modře stupeň ventilátoru",
-                       anchor="s", fill="#868e96", font=("Segoe UI", 8))
+                cv.create_rectangle(x_of(i), y0, x_of(j) + pw / HISTORY_S + 1, pad_t + ph,
+                                    fill=FAN_BAND, outline="")
+            i = j + 1
+        # osa výkonu
+        for v in (0, p_max // 2, p_max):
+            cv.create_text(pad_l - 6, yp(v), text=str(v), anchor="e", fill=FAINT, font=self.fonts.chart)
+        cv.create_line(pad_l, pad_t + ph, pad_l + pw, pad_t + ph, fill=BORDER)
+        # prahy stupňů
+        for k, v in enumerate(thr):
+            y = yp(v)
+            cv.create_line(pad_l, y, pad_l + pw, y, fill=FAINT, dash=(3, 3))
+            cv.create_text(pad_l + pw + 6, y, text=f"{k + 1} · {v} W", anchor="w", fill=MUTED,
+                           font=self.fonts.chart)
 
         def line(idx, scale, color):
             pts = []
-            for i, row in enumerate(hist):
+            for i2, row in enumerate(hist):
                 v = row[idx]
                 if v is None:
                     if len(pts) >= 4:
-                        cv.create_line(*pts, fill=color, width=2)
+                        cv.create_line(*pts, fill=color, width=max(1, int(2 * s)))
                     pts = []
                     continue
-                pts += [x_of(i), pad_t + ph * (1 - max(0.0, min(1.0, scale(v))))]
+                pts += [x_of(i2), pad_t + ph * (1 - max(0.0, min(1.0, scale(v))))]
             if len(pts) >= 4:
-                cv.create_line(*pts, fill=color, width=2)
+                cv.create_line(*pts, fill=color, width=max(1, int(2 * s)))
 
-        line(0, lambda v: v / p_max, COL_POWER)
-        line(1, lambda v: (v - hr_lo) / (hr_hi - hr_lo), COL_HR)
+        line(0, lambda v: v / p_max, POWER)
+        line(1, lambda v: (v - hr_lo) / (hr_hi - hr_lo), HR)
 
+    # ============================================================ konec
     def _cleanup(self):
         """Uvolní dongle – volá se při zavření okna i při ukončení procesu."""
         if getattr(self, "_cleaned", False):
@@ -722,7 +1086,7 @@ class App:
 
     def _on_close(self):
         try:
-            self.ant_status.set("Uvolňuji dongle…")
+            self.st_ant.set("Uvolňuji dongle…", FAINT)
             self.root.update_idletasks()
             self._cleanup()
         finally:
@@ -765,8 +1129,6 @@ def _check_single_instance(inst: SingleInstance) -> bool:
 
 
 def main():
-    import sys
-
     if "--selftest" in sys.argv:  # kontrola sestaveného exe (GitHub Actions)
         from .selftest import run
 
