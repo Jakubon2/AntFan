@@ -4,8 +4,23 @@ Program pro Windows 11:
 
 1. připojí se k ANT+ USB donglu,
 2. vyhledá všechny tepové pásy, powermetry a chytré trenažéry (ANT+ FE-C) v okolí,
-3. u vybraných zobrazuje výkon, kadenci a tep v reálném čase (s grafem za posledních 5 minut),
+3. u vybraných zobrazuje výkon, kadenci a tep v reálném čase (s grafem za posledních 10 minut),
 4. podle hodnot nastavuje rychlost ventilátoru **Xiaomi Smart Standing Fan 2 Lite** (`dmaker.fan.1c`, stupně 1–3) přes lokální Wi-Fi.
+
+## Podporovaná zařízení
+
+| Zařízení | Funguje | Nefunguje |
+|---|---|---|
+| **ANT+ dongle** | Garmin ANT+ USB stick (ANTUSB2, `0fcf:1008`), Garmin mini stick (ANTUSB-m, `0fcf:1009`) a většina levných klonů (CooSpo, CYCPLUS, Anself…), které se hlásí stejně | starý stick první generace (`0fcf:1004`), Bluetooth |
+| **Tepový pás** | jakýkoli s ANT+: Garmin HRM, Wahoo TICKR, Scosche Rhythm+, Garmin hodinky se zapnutým *vysíláním tepu* | jen Bluetooth: Polar H9, H10, Verity Sense |
+| **Powermetr** | jakýkoli ANT+: pedály (Garmin Rally, Favero Assioma), kliky (Stages, 4iiii, Quarq) | jen Bluetooth |
+| **Chytrý trenažér** | jakýkoli s ANT+ FE-C: Tacx, Wahoo KICKR, Elite, Zwift Hub… | trenažér jen s Bluetooth |
+| **Ventilátor** | Xiaomi Smart Standing Fan 2 Lite (`dmaker.fan.1c`), odzkoušený | starší Xiaomi se starým protokolem, ventilátory s plynulou rychlostí v %, jiné značky |
+| **Počítač** | Windows 10 a 11 | macOS a Linux zatím ne |
+
+Samostatné čidlo rychlosti a kadence AntFan nepoužívá, kadenci bere z powermetru nebo trenažéru.
+
+**Jiné Xiaomi ventilátory:** novější modely s protokolem MIoT a stupni rychlosti (1–5) by měly jít, ale nikdo je nezkoušel. V `%APPDATA%\AntFan\config.json` je potřeba v sekci `fan` upravit `max_level` a čísla vlastností (`power_siid/piid`, `level_siid/piid`, `buzzer_…`, `light_…`) podle specifikace modelu na <https://home.miot-spec.com>. Když to u vás funguje, napište model a hodnoty do Issues.
 
 ## Instalace
 
@@ -108,13 +123,13 @@ Přepínač dole v okně: **Auto** řídí ventilátor podle pravidel, **Vyp/1/2
 
 Když jeden zdroj chybí (například nemáte powermetr), použije se automaticky ten druhý.
 
-### Záložka Prahy
+### Prahy (Nastavení → Řízení)
 - **% FTP / % max. tepu** (výchozí): zadáte FTP a maximální tep a prahy jsou v procentech. Výchozí stupně jsou 30 / 60 / 85 % FTP a 55 / 70 / 82 % max. tepu. Vedle se ukáže přepočet na W a bpm. Když se zlepší forma, stačí změnit FTP.
 - **W / bpm**: pevné hodnoty, výchozí 60 / 160 / 240 W a 105 / 135 / 155 bpm.
 - **Hystereze**: stupeň se sníží, až když průměr klesne pod práh mínus tuto hodnotu (W, bpm).
 - **Vyhlazení**: průměr za posledních N sekund. Výkon na kole hodně kolísá.
 
-### Záložka Chování
+### Nastavení → Chování
 - **Prodleva před snížením**: jak dlouho musí být hodnota nízko, než se stupeň sníží. Zvýšení je vždy okamžité.
 - **Dofukování po tréninku**: po skončení šlapání ventilátor ještě N minut fouká na zvoleném stupni (výchozí 3 min na stupni 1) a pak se vypne. Hodnota 0 dofukování vypne.
 - **Bez dat → stupeň**: co udělat, když po zadanou dobu nepřijdou žádná data (výchozí: vypnout). Dofukování má přednost.
