@@ -34,21 +34,54 @@ log = logging.getLogger("antfan")
 
 HISTORY_S = 600  # graf: posledních 10 minut
 
-# barvy – jedna barva = jeden význam
-BG = "#ffffff"
-SURFACE = "#f6f5f2"
-BORDER = "#e3e1db"
-TEXT = "#1f1f1d"
-MUTED = "#6b6a65"
-FAINT = "#a3a19a"
-POWER = "#D85A30"
-HR = "#D4537E"
-FAN = "#185FA5"
-FAN_BAND = "#e1ecf7"
-ACCENT = "#185FA5"
-ACCENT_BG = "#e6f1fb"
-OK = "#2f7d32"
-BAD = "#c0392b"
+# barvy – jedna barva = jeden význam; hodnoty se přepíšou podle motivu (_set_palette)
+LIGHT = dict(BG="#ffffff", SURFACE="#f6f5f2", BORDER="#e3e1db", TEXT="#1f1f1d", MUTED="#6b6a65",
+             FAINT="#a3a19a", POWER="#D85A30", HR="#D4537E", FAN="#185FA5", FAN_BAND="#e1ecf7",
+             ACCENT="#185FA5", ACCENT_BG="#e6f1fb", OK="#2f7d32", BAD="#c0392b")
+DARK = dict(BG="#1c1d20", SURFACE="#26272b", BORDER="#3a3b40", TEXT="#ecebe7", MUTED="#a3a29c",
+            FAINT="#6f6e69", POWER="#EE7A50", HR="#E8739B", FAN="#5E9FE3", FAN_BAND="#1e3048",
+            ACCENT="#5E9FE3", ACCENT_BG="#1e3048", OK="#5cb860", BAD="#e8695a")
+BG = SURFACE = BORDER = TEXT = MUTED = FAINT = POWER = HR = FAN = FAN_BAND = ACCENT = ACCENT_BG = OK = BAD = ""
+THEMES = [("light", "Světlý"), ("dark", "Tmavý"), ("system", "Podle systému")]
+
+
+def system_is_dark() -> bool:
+    try:
+        if sys.platform == "win32":
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as k:
+                return winreg.QueryValueEx(k, "AppsUseLightTheme")[0] == 0
+        if sys.platform == "darwin":
+            r = subprocess.run(["defaults", "read", "-g", "AppleInterfaceStyle"],
+                               capture_output=True, text=True, timeout=2)
+            return "Dark" in r.stdout
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
+def _set_palette(dark: bool) -> None:
+    globals().update(DARK if dark else LIGHT)
+
+
+def _titlebar(win, dark: bool) -> None:
+    """Tmavý titulek okna na Windows 10/11 (jinak nic)."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        win.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
+        val = ctypes.c_int(1 if dark else 0)
+        for attr in (20, 19):  # DWMWA_USE_IMMERSIVE_DARK_MODE (nový / starší build)
+            if ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(val), 4) == 0:
+                break
+    except Exception:  # noqa: BLE001
+        pass
+
+
+_set_palette(False)
 
 MODE_CARDS = [
     ("smart", "Chytře", "Výkon zvyšuje, tep drží"),
@@ -172,11 +205,17 @@ class App:
 
         self.fonts = Fonts(root)
         self.px = max(1.0, root.winfo_fpixels("1i") / 96)  # měřítko pro pixely (HiDPI)
+        self._native_theme = ttk.Style().theme_use()
+        self.theme_var = tk.StringVar(value=self.cfg.theme if self.cfg.theme in dict(THEMES) else "system")
+        self.dark = self._want_dark()
+        _set_palette(self.dark)
         self._setup_style()
         root.title("AntFan")
         root.configure(bg=BG)
         self._build_ride()
         self._build_settings()
+        _titlebar(root, self.dark)
+        _titlebar(self.settings, self.dark)
         self._make_backend()
         self._make_fan()
         self._refresh_tree()
@@ -196,16 +235,77 @@ class App:
             root.after(300, lambda: self.open_settings("sensors"))
 
     # ================================================================ vzhled
+    def _want_dark(self) -> bool:
+        t = self.theme_var.get()
+        return system_is_dark() if t == "system" else t == "dark"
+
     def _setup_style(self):
         st = ttk.Style()
+        f = self.fonts
+        if self.dark:
+            # nativní motiv Windows (vista) barvy nebere, clam ano
+            st.theme_use("clam")
+            st.configure(".", background=BG, foreground=TEXT, fieldbackground=SURFACE, bordercolor=BORDER,
+                         lightcolor=SURFACE, darkcolor=SURFACE, troughcolor=SURFACE, focuscolor=ACCENT,
+                         selectbackground=ACCENT, selectforeground="#ffffff", insertcolor=TEXT,
+                         arrowcolor=TEXT)
+            st.configure("TButton", background=SURFACE, foreground=TEXT, padding=(10, 3))
+            st.map("TButton", background=[("pressed", BORDER), ("active", BORDER)])
+            for name in ("TEntry", "TSpinbox"):
+                st.configure(name, fieldbackground=SURFACE, foreground=TEXT, insertcolor=TEXT)
+                st.map(name, fieldbackground=[("disabled", BG)], foreground=[("disabled", FAINT)])
+            for name in ("TCheckbutton", "TRadiobutton"):
+                st.configure(name, indicatorbackground=SURFACE, indicatorforeground=TEXT)
+                st.map(name, background=[("active", BG)], indicatorbackground=[("pressed", BORDER)])
+            st.configure("Treeview", background=SURFACE, fieldbackground=SURFACE, foreground=TEXT)
+            st.configure("Treeview.Heading", background=BG, foreground=MUTED)
+            st.map("Treeview.Heading", background=[("active", SURFACE)])
+        else:
+            st.theme_use(self._native_theme)
         for name in ("TFrame", "TLabel", "TCheckbutton", "TRadiobutton"):
             st.configure(name, background=BG)
-        st.configure("TLabel", foreground=TEXT, font=self.fonts.body)
-        st.configure("TCheckbutton", font=self.fonts.body)
-        st.configure("TRadiobutton", font=self.fonts.body)
-        st.configure("TButton", font=self.fonts.body)
-        st.configure("Treeview", font=self.fonts.body, rowheight=int(24 * self.px))
-        st.configure("Treeview.Heading", font=self.fonts.small)
+        st.configure("TLabel", foreground=TEXT, font=f.body)
+        st.configure("TCheckbutton", foreground=TEXT, font=f.body)
+        st.configure("TRadiobutton", foreground=TEXT, font=f.body)
+        st.configure("TButton", font=f.body)
+        st.configure("Treeview", font=f.body, rowheight=int(24 * self.px))
+        st.configure("Treeview.Heading", font=f.small)
+
+    def on_theme(self):
+        self.cfg.theme = self.theme_var.get()
+        config_mod.save(self.cfg)
+        dark = self._want_dark()
+        if dark != self.dark:
+            self._rebuild_ui(dark)
+
+    def _rebuild_ui(self, dark: bool):
+        """Přestaví obě okna v novém motivu; stav měření a historie zůstává."""
+        if self._apply_job is not None:
+            self.root.after_cancel(self._apply_job)
+            self._apply_job = None
+        self.on_apply()
+        page = getattr(self, "_page", "sensors")
+        shown = self.settings.winfo_viewable()
+        geo, sgeo = self.root.geometry(), self.settings.geometry()
+        for w in self.root.winfo_children():
+            w.destroy()
+        self.dark = dark
+        _set_palette(dark)
+        self._setup_style()
+        self.root.configure(bg=BG)
+        self._last_bars = None
+        self._build_ride()
+        self._build_settings()
+        self.root.geometry(geo)
+        self.settings.geometry(sgeo)
+        self.show_page(page)
+        self._set_fan_status(self.fan_status_text, self.fan_ok)
+        self._refresh_tree()
+        _titlebar(self.root, dark)
+        _titlebar(self.settings, dark)
+        if shown:
+            self.settings.deiconify()
+            self.settings.lift()
 
     def _lbl(self, parent, text="", fg=MUTED, font=None, **kw):
         return tk.Label(parent, text=text, bg=BG, fg=fg, font=font or self.fonts.small, **kw)
@@ -313,6 +413,7 @@ class App:
                                     ("fan", "Ventilátor", self._page_fan),
                                     ("control", "Řízení", self._page_control),
                                     ("behavior", "Chování", self._page_behavior),
+                                    ("look", "Vzhled", self._page_look),
                                     ("diag", "Diagnostika", self._page_diag)):
             lb = tk.Label(nav, text=title, bg=SURFACE, fg=MUTED, font=self.fonts.body, anchor="w",
                           padx=14, pady=6, width=14, cursor="hand2")
@@ -330,6 +431,7 @@ class App:
         w.minsize(need, hneed)
 
     def show_page(self, key):
+        self._page = key
         for k, p in self.pages.items():
             p.pack_forget()
             self.nav_items[k].configure(bg=BG if k == key else SURFACE, fg=TEXT if k == key else MUTED)
@@ -515,6 +617,15 @@ class App:
                      "musí být pod prahem. Chytrý režim navíc drží stupeň podle tepu, takže ventilátor "
                      "nezpomalí v krátkém odpočinku mezi intervaly.",
                   anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(4, 0))
+
+    # --- Vzhled
+    def _page_look(self, p):
+        self._page_head(p, "Vzhled", "Tmavý motiv méně oslňuje při jízdě v šeru.")
+        for key, text in THEMES:
+            ttk.Radiobutton(p, text=text, variable=self.theme_var, value=key,
+                            command=self.on_theme).pack(anchor="w", pady=2)
+        self._lbl(p, "Podle systému: řídí se nastavením Windows (Přizpůsobení → Barvy).",
+                  anchor="w").pack(fill="x", pady=(8, 0))
 
     # --- Diagnostika
     def _page_diag(self, p):

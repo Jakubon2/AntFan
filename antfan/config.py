@@ -32,6 +32,7 @@ class AppConfig:
     scan_duration_s: int = 15
     simulation: bool = False
     auto_mode: bool = True
+    theme: str = "system"  # light | dark | system
 
 
 def _merge(cls, data: dict):
