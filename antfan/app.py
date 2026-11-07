@@ -1266,6 +1266,12 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         hint = self.lbl_ride_hint.cget("text")
         if not self.sim_var.get() and not self.fan_ok:
             hint = ("Ventilátor nepřipojen. " + hint).strip()
+        try:  # slabá baterie senzorů (stejně jako lišta)
+            batt = [x for x in overlay.overlay_state(self)["alerts"] if x.startswith("Slabá baterie")]
+        except Exception:  # noqa: BLE001
+            batt = []
+        if batt:
+            hint = (" ".join(batt) + ". " + hint).strip()
         p = ctrl.power_smoothed
         self.web.publish({
             "power": None if p is None else round(p),
@@ -1276,6 +1282,7 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
             "hr_sub": self.t_hr["sub"].cget("text"),
             "level": desired,
             "reason": reason,
+            "pct": ctrl.pct,
             "auto": self.auto_var.get(),
             "manual": self.manual_level,
             "max_level": self.cfg.fan.max_level,
