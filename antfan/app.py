@@ -24,7 +24,7 @@ from tkinter import messagebox, ttk
 
 from . import __version__
 from . import config as config_mod
-from . import drink, qr, usb_diag, web
+from . import drink, overlay, qr, usb_diag, web
 from .ant_backend import FE_TYPE, HR_TYPE, MAX_CHANNELS, PM_TYPE, AntBackend, FoundDevice, SimulatedBackend
 from .controller import Controller
 from .miio_fan import FanWorker, MiioError, SimulatedFan, XiaomiFan
@@ -199,6 +199,8 @@ class App:
         self.drink = drink.DrinkTracker(self.cfg.drink_enabled, self.cfg.drink_temp_c,
                                         self.cfg.drink_interval_min)  # připomínka pití
         self._drink_job = None
+        self.overlay = overlay.Overlay(self)  # lišta navrchu; okno se staví znovu po _rebuild_ui
+        self.overlay_var = tk.BooleanVar(value=self.cfg.overlay_enabled)
 
         for d in self.cfg.selected:
             fd = FoundDevice(d[0], d[1], d[2] if len(d) > 2 else 0)
@@ -227,6 +229,7 @@ class App:
         self._make_fan()
         self._refresh_tree()
         self._web_sync()
+        self.overlay.sync()
 
         root.update_idletasks()
         need_w, need_h = root.winfo_reqwidth(), root.winfo_reqheight()
@@ -309,6 +312,7 @@ class App:
         self.show_page(page)
         self._set_fan_status(self.fan_status_text, self.fan_ok)
         self._refresh_tree()
+        self.overlay.rebuild()
         _titlebar(self.root, dark)
         _titlebar(self.settings, dark)
         if shown:
@@ -335,6 +339,8 @@ class App:
         self.st_web.pack(side="left", padx=(14, 0))
         self.btn_run = ttk.Button(top, text="Spustit měření", command=self.on_run_toggle)
         self.btn_run.pack(side="right", padx=8)
+        ttk.Checkbutton(top, text="Lišta", variable=self.overlay_var,
+                        command=lambda: overlay.apply(self)).pack(side="right", padx=(0, 6))
         _hline(r)
 
         tiles = tk.Frame(r, bg=BG)
@@ -641,6 +647,7 @@ class App:
                             command=self.on_theme).pack(anchor="w", pady=2)
         self._lbl(p, "Podle systému: řídí se nastavením Windows (Přizpůsobení → Barvy).",
                   anchor="w").pack(fill="x", pady=(8, 0))
+        overlay.build_settings(self, p)
 
     # --- Mobil
     def _page_mobile(self, p):
@@ -1423,6 +1430,7 @@ class App:
         self.lbl_diag_status.configure(text=self.ant_status_full)
         self._update_segment()
         self._drink_tick(now)
+        self.overlay.tick(now)
         self._web_publish(desired, reason, text, col)
 
         if now - self._last_hist >= 1.0:

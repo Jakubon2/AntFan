@@ -162,6 +162,16 @@ Volitelná, **výchozí je vypnuto**. Zapíná se v Nastavení → Pití. Během
 - **Teplota v místnosti** (výchozí 20 °C): prázdné pole = teplotu nepočítat. **Interval** v minutách: prázdné = automaticky.
 - Hodnoty jsou jen orientační, nejde o zdravotní doporučení.
 
+## Lišta navrchu
+Malý tmavý proužek, který zůstává nad Rouvy a jinými aplikacemi. **Výchozí je vypnuto.** Zapíná se přepínačem „Lišta“ v horní liště okna jízdy nebo v Nastavení → Vzhled.
+
+- Ukazuje jen to, co Rouvy neví: stupeň ventilátoru a za ním důvod („2 · výkon“, „1 · dofukování 1:40“, „ručně 2“). Volitelně druhé číslo: % max. tepu (výchozí), tepová zóna nebo nic.
+- Upozornění jen když jsou: připomínka pití, slabá baterie senzoru, výpadek příjmu, ventilátor neodpovídá.
+- Kliknutím na stupeň přepnete Auto → 1 → 2 → … → Vyp. Přetažením myší lištu posunete, pozice se uloží. Tlačítko „Vrátit lištu do rohu“ ji vrátí doprava nahoru.
+- Velikost Mini nebo Standard. Režim **Jen upozornění**: lišta je skrytá a ukáže se na 20 s, když přijde upozornění.
+- **Rouvy musí běžet v okně bez rámečku** (borderless / okno na celou obrazovku), ne v exkluzivní celé obrazovce. Přes exkluzivní režim se žádné okno nedostane.
+- macOS: lišta je nad ostatními okny, ale ne nad aplikací v celoobrazovkovém prostoru (zelené tlačítko). Rouvy tam pusťte v maximalizovaném okně.
+
 ## Řešení problémů
 
 ### „Dongle je připojen k jiné aplikaci“, i když žádná neběží
@@ -206,6 +216,7 @@ antfan/miio_fan.py      protokol miIO pro Xiaomi ventilátor (bez python-miio)
 antfan/controller.py    výpočet stupně: chytrý režim, % FTP, vyhlazení, hystereze, dofukování
 antfan/web.py           ovládání z mobilu: HTTP server a stránka pro telefon
 antfan/drink.py         připomínka pití: interval a množství podle délky jízdy, výkonu a teploty
+antfan/overlay.py       lišta navrchu přes Rouvy: stav z aplikace, okno bez rámečku, volby
 antfan/qr.py            QR kód s adresou pro mobil (bez knihoven)
 antfan/app.py           GUI (tkinter)
 tests/                  unit testy (python -m unittest discover tests)
