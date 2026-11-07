@@ -1,4 +1,5 @@
-import sys, json, urllib.request
+import sys, json, os, tempfile, urllib.request
+os.environ["ANTFAN_HOME"] = tempfile.mkdtemp(prefix="antfan-smoke-")
 sys.path.insert(0, ".")
 import tkinter as tk
 from antfan import app as A, config, overlay

@@ -20,7 +20,9 @@ log = logging.getLogger("antfan.config")
 
 
 def app_dir() -> Path:
-    if sys.platform == "win32":
+    if os.environ.get("ANTFAN_HOME"):  # testy: nepřepisovat skutečné nastavení
+        d = Path(os.environ["ANTFAN_HOME"])
+    elif sys.platform == "win32":
         base = Path(os.environ.get("APPDATA", Path.home()))
         d = base / "AntFan"
     elif sys.platform == "darwin":
