@@ -9,8 +9,12 @@ Program pro Windows 11:
 
 ## Instalace
 
-### 1. Python
-Nainstalujte Python 3.10+ z <https://www.python.org/downloads/windows/> (zaškrtněte *Add python.exe to PATH*).
+### 1. Program
+**Nejjednodušší:** v sekci [Releases](../../releases) stáhněte **`AntFan.exe`** a spusťte ho. Python ani nic dalšího není potřeba.
+
+Exe sestavuje GitHub Actions (`.github/workflows/build-exe.yml`) při každé značce verze `v*` a před vydáním ho ověří vestavěnou kontrolou (`AntFan.exe --selftest`).
+
+**Ze zdrojového kódu:** nainstalujte Python 3.10+ z <https://www.python.org/downloads/windows/> (zaškrtněte *Add python.exe to PATH*) a spusťte `run.bat`.
 
 ### 2. Ovladač ANT+ donglu
 Program komunikuje s donglem přes libusb, takže dongle potřebuje ovladač **libusbK** nebo **WinUSB**.
@@ -21,9 +25,9 @@ Jinak: stáhněte [Zadig](https://zadig.akeo.ie/), *Options → List All Devices
 > Pozor: Garmin Express a některé aplikace používají vlastní ovladač. Po přepnutí na libusbK je nemusí vidět. Zwift, TrainerRoad a podobné aplikace musí být při spuštění AntFan zavřené, protože dongle může používat jen jeden program najednou.
 
 ### 3. Spuštění
-Dvojklik na **`run.bat`**. Při prvním spuštění se vytvoří virtuální prostředí a nainstalují závislosti (cca 1 minuta).
+Dvojklik na **`AntFan.exe`**, nebo u verze ze zdrojového kódu na **`run.bat`**. Při prvním spuštění `run.bat` se vytvoří virtuální prostředí a nainstalují závislosti (cca 1 minuta).
 
-Samostatné `.exe` bez Pythonu: spusťte **`build_exe.bat`**, výsledek najdete v `dist\AntFan.exe`.
+Exe si můžete sestavit i sami: spusťte **`build_exe.bat`**, výsledek najdete v `dist\AntFan.exe`.
 
 ## Připojení ventilátoru (IP adresa a token)
 
@@ -159,6 +163,7 @@ Ve sloupci **Příjem** je vidět, kolik % zpráv od senzoru za posledních 5 s 
 ## Struktura
 ```
 antfan/ant_backend.py   ANT+ vyhledávání (continuous scan) a měření tepu, powermetru a trenažéru (openant)
+antfan/selftest.py      kontrola sestaveného exe (--selftest)
 antfan/rx.py            příjem ze senzoru: dekódování výkonu, kvalita signálu, diagnostika do logu
 antfan/usb_diag.py      diagnostika obsazeného donglu, USB reset, oprava úniku v openant
 antfan/single_instance.py  jen jedna spuštěná instance

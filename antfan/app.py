@@ -765,6 +765,13 @@ def _check_single_instance(inst: SingleInstance) -> bool:
 
 
 def main():
+    import sys
+
+    if "--selftest" in sys.argv:  # kontrola sestaveného exe (GitHub Actions)
+        from .selftest import run
+
+        i = sys.argv.index("--selftest")
+        sys.exit(run(sys.argv[i + 1] if len(sys.argv) > i + 1 else None))
     setup_logging()
     try:
         from ctypes import windll  # ostré písmo na Windows s HiDPI
