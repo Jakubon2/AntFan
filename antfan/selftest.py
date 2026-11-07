@@ -69,6 +69,25 @@ def run(out_path: str | None = None) -> int:
         assert "dmaker.fan.1c" in fan_presets.PRESETS
         key = b"0123456789abcdef"
         assert xiaomi_cloud._rc4(key, xiaomi_cloud._rc4(key, b"abc")) == b"abc"
+    def t_web():
+        import json
+        import queue
+        import urllib.request
+
+        from . import qr, web
+
+        assert len(qr.encode("http://192.0.2.10:8686/m/" + web.new_key())) == 33
+        ev: queue.Queue = queue.Queue()
+        srv = web.WebServer(ev)
+        srv.start(0, "k", host="127.0.0.1")
+        try:
+            srv.publish({"max_level": 3})
+            base = f"http://127.0.0.1:{srv.port}/m/k"
+            with urllib.request.urlopen(base + "/api/state", timeout=5) as r:
+                assert json.loads(r.read())["max_level"] == 3
+        finally:
+            srv.stop()
+        return "server a QR kód"
 
     def t_app():
         from . import app  # noqa: F401
@@ -79,6 +98,7 @@ def run(out_path: str | None = None) -> int:
     check("opravy openant", t_patches)
     check("šifrování miIO", t_crypto)
     check("ventilátory", t_fans)
+    check("web pro mobil", t_web)
     check("aplikace", t_app)
     lines.append("VÝSLEDEK: " + ("v pořádku" if ok else "CHYBA"))
     text = "\n".join(lines)

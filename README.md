@@ -173,6 +173,36 @@ Zaškrtnutím **Simulace (bez hardwaru)** program vygeneruje falešné senzory a
 
 Postup testování všech funkcí je v souboru [TESTOVANI.md](TESTOVANI.md).
 
+## Ovládání z mobilu
+Hodnoty (výkon, tep, stupeň) a přepínač **Auto | Vyp | 1–3** lze mít i na telefonu na řídítkách. Telefon musí být ve stejné Wi-Fi jako počítač, nic se neinstaluje.
+
+1. V hlavním okně klikněte na **Zapnout mobil** (výchozí je vypnuto). Poprvé se otevře Nastavení → Mobil s QR kódem. Po zavření programu se ovládání z mobilu zase vypne. Kdo ho chce mít pořád, zaškrtne v Nastavení → Mobil **Zapnout hned po spuštění programu**.
+2. Načtěte v telefonu QR kód, nebo otevřete adresu ve tvaru `http://<IP počítače>:8686/m/<klíč>`.
+3. Windows se napoprvé zeptá, zda AntFan smí do sítě. Povolte **soukromé sítě**, jinak se telefon nepřipojí.
+
+- Adresa obsahuje náhodný klíč. Bez něj server odpoví 404. Kdo adresu zná, může ventilátor ovládat. Tlačítko **Nový klíč** starou adresu zneplatní.
+- Port (výchozí 8686) jde změnit, když je obsazený.
+- Stránka se obnovuje každou sekundu a řídí se tmavým režimem telefonu. Obrazovku telefonu nechte rozsvícenou.
+- Pro vlastní skripty: `GET /m/<klíč>/api/state` vrací JSON, `POST /m/<klíč>/api/level` s tělem `{"level": "auto"}` nebo `{"level": 2}` přepne stupeň.
+
+## Připomínka pití
+Volitelná, **výchozí je vypnuto**. Zapíná se v Nastavení → Pití. Během jízdy se pod grafem občas objeví tenký pruh „Napijte se · zhruba 150 ml“. Zmizí kliknutím nebo po minutě. Na mobilu se ukáže stejný pruh.
+
+- Počítá jen během měření a když šlapete (výkon nebo kadence nad 0, bez powermetru podle tepu).
+- Základ: každých 15 min, zhruba 500 ml za hodinu. Při vyšším výkonu (kJ za hodinu) až 750 ml/h a interval až 10 min. Nad 22 °C v místnosti víc a častěji. Po hodině jízdy je interval o 10 % kratší.
+- **Teplota v místnosti** (výchozí 20 °C): prázdné pole = teplotu nepočítat. **Interval** v minutách: prázdné = automaticky.
+- Hodnoty jsou jen orientační, nejde o zdravotní doporučení.
+
+## Lišta navrchu
+Malý tmavý proužek, který zůstává nad Rouvy a jinými aplikacemi. **Výchozí je vypnuto.** Zapíná se přepínačem „Lišta“ v horní liště okna jízdy nebo v Nastavení → Vzhled.
+
+- Ukazuje jen to, co Rouvy neví: stupeň ventilátoru a za ním důvod („2 · výkon“, „1 · dofukování 1:40“, „ručně 2“). Volitelně druhé číslo: % max. tepu (výchozí), tepová zóna nebo nic.
+- Upozornění jen když jsou: připomínka pití, slabá baterie senzoru, výpadek příjmu, ventilátor neodpovídá.
+- Kliknutím na stupeň přepnete Auto → 1 → 2 → … → Vyp. Přetažením myší lištu posunete, pozice se uloží. Tlačítko „Vrátit lištu do rohu“ ji vrátí doprava nahoru.
+- Velikost Mini nebo Standard. Režim **Jen upozornění**: lišta je skrytá a ukáže se na 20 s, když přijde upozornění.
+- **Rouvy musí běžet v okně bez rámečku** (borderless / okno na celou obrazovku), ne v exkluzivní celé obrazovce. Přes exkluzivní režim se žádné okno nedostane.
+- macOS: lišta je nad ostatními okny, ale ne nad aplikací v celoobrazovkovém prostoru (zelené tlačítko). Rouvy tam pusťte v maximalizovaném okně.
+
 ## Řešení problémů
 
 ### „Dongle je připojen k jiné aplikaci“, i když žádná neběží
@@ -217,5 +247,10 @@ antfan/miio_fan.py      protokol miIO pro Xiaomi ventilátor (bez python-miio)
 antfan/controller.py    výpočet stupně: chytrý režim, % FTP, vyhlazení, hystereze, dofukování
 antfan/vitr.py          plynulá rychlost a vítr podle rychlosti: mapování na %, pomalé snižování
 antfan/vitr_ui.py       nastavení a dlaždice ventilátoru pro výstup v %
+antfan/web.py           ovládání z mobilu: HTTP server a stránka pro telefon
+antfan/drink.py         připomínka pití: interval a množství podle délky jízdy, výkonu a teploty
+antfan/overlay.py       lišta navrchu přes Rouvy: stav z aplikace, okno bez rámečku, volby
+antfan/qr.py            QR kód s adresou pro mobil (bez knihoven)
 antfan/app.py           GUI (tkinter)
+tests/                  unit testy (python -m unittest discover tests)
 ```

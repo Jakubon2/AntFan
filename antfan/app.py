@@ -24,7 +24,7 @@ from tkinter import messagebox, ttk
 
 from . import __version__
 from . import config as config_mod
-from . import usb_diag
+from . import drink, overlay, qr, usb_diag, web
 from .ant_backend import FE_TYPE, HR_TYPE, MAX_CHANNELS, PM_TYPE, AntBackend, FoundDevice, SimulatedBackend
 from .controller import Controller
 from .fans import FanError, HomeAssistantFan, ShellyFan
@@ -203,6 +203,15 @@ class App:
         self.fan_status_text, self.fan_ok = "nepřipojeno", False
         self._apply_job = None
         self._last_bars = None
+        self.web = web.WebServer(self.events)  # ovládání z mobilu; přežije _rebuild_ui
+        self.web_error = ""
+        self.web_on = self.cfg.web_autostart  # zapíná se tlačítkem Mobil, trvale jen volbou v Nastavení
+        self._web_last = 0.0
+        self.drink = drink.DrinkTracker(self.cfg.drink_enabled, self.cfg.drink_temp_c,
+                                        self.cfg.drink_interval_min)  # připomínka pití
+        self._drink_job = None
+        self.overlay = overlay.Overlay(self)  # lišta navrchu; okno se staví znovu po _rebuild_ui
+        self.overlay_var = tk.BooleanVar(value=self.cfg.overlay_enabled)
 
         for d in self.cfg.selected:
             fd = FoundDevice(d[0], d[1], d[2] if len(d) > 2 else 0)
@@ -230,6 +239,8 @@ class App:
         self._make_backend()
         self._make_fan()
         self._refresh_tree()
+        self._web_sync()
+        self.overlay.sync()
 
         root.update_idletasks()
         need_w, need_h = root.winfo_reqwidth(), root.winfo_reqheight()
@@ -312,6 +323,7 @@ class App:
         self.show_page(page)
         self._set_fan_status(self.fan_status_text, self.fan_ok)
         self._refresh_tree()
+        self.overlay.rebuild()
         _titlebar(self.root, dark)
         _titlebar(self.settings, dark)
         if shown:
@@ -332,8 +344,14 @@ class App:
         self.st_fan = StatusDot(top, f)
         self.st_fan.pack(side="left")
         ttk.Button(top, text="Nastavení", command=lambda: self.open_settings()).pack(side="right")
+        self.btn_web = ttk.Button(top, text="Zapnout mobil", command=self.on_web_button)
+        self.btn_web.pack(side="right", padx=(8, 0))
+        self.st_web = StatusDot(top, f)
+        self.st_web.pack(side="left", padx=(14, 0))
         self.btn_run = ttk.Button(top, text="Spustit měření", command=self.on_run_toggle)
         self.btn_run.pack(side="right", padx=8)
+        ttk.Checkbutton(top, text="Lišta", variable=self.overlay_var,
+                        command=lambda: overlay.apply(self)).pack(side="right", padx=(0, 6))
         _hline(r)
 
         tiles = tk.Frame(r, bg=BG)
@@ -355,6 +373,7 @@ class App:
         for text, col in (("výkon, W", POWER), ("tep, bpm (60–200)", HR), ("ventilátor", FAN)):
             self._lbl(legend, text, fg=col).pack(side="left", padx=(0, 14))
         self._lbl(legend, "posledních 10 min", fg=FAINT).pack(side="right")
+        self._build_drink_strip(r)
         _hline(r)
 
         bottom = tk.Frame(r, bg=BG)
@@ -424,7 +443,9 @@ class App:
                                     ("fan", "Ventilátor", self._page_fan),
                                     ("control", "Řízení", self._page_control),
                                     ("behavior", "Chování", self._page_behavior),
+                                    ("drink", "Pití", self._page_drink),
                                     ("look", "Vzhled", self._page_look),
+                                    ("mobile", "Mobil", self._page_mobile),
                                     ("diag", "Diagnostika", self._page_diag)):
             lb = tk.Label(nav, text=title, bg=SURFACE, fg=MUTED, font=self.fonts.body, anchor="w",
                           padx=14, pady=6, width=14, cursor="hand2")
@@ -721,6 +742,50 @@ class App:
             "macOS (Nastavení systému → Vzhled)." if sys.platform == "darwin"
             else "Windows (Přizpůsobení → Barvy)."),
                   anchor="w").pack(fill="x", pady=(8, 0))
+        overlay.build_settings(self, p)
+
+    # --- Mobil
+    def _page_mobile(self, p):
+        self._page_head(p, "Mobil", "Hodnoty a přepínač stupně na telefonu ve stejné Wi-Fi. "
+                                    "Stačí otevřít adresu v prohlížeči, nic se neinstaluje.")
+        self.web_var = tk.BooleanVar(value=self.web_on)
+        ttk.Checkbutton(p, text="Zapnuto", variable=self.web_var,
+                        command=self.on_web_toggle).pack(anchor="w")
+        self.web_auto_var = tk.BooleanVar(value=self.cfg.web_autostart)
+        ttk.Checkbutton(p, text="Zapnout hned po spuštění programu", variable=self.web_auto_var,
+                        command=self.on_web_autostart).pack(anchor="w")
+        self._lbl(p, "Jinak se zapíná tlačítkem Zapnout mobil v hlavním okně a po zavření programu se vypne.",
+                  anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(2, 0))
+        row = tk.Frame(p, bg=BG)
+        row.pack(fill="x", pady=(8, 0))
+        ttk.Label(row, text="Port").pack(side="left")
+        self.e_web_port = ttk.Entry(row, width=7, justify="center")
+        self.e_web_port.insert(0, str(self.cfg.web_port))
+        self.e_web_port.pack(side="left", padx=(8, 0))
+        self.e_web_port.bind("<Return>", lambda e: self.on_web_port())
+        self.e_web_port.bind("<FocusOut>", lambda e: self.on_web_port())
+        self.lbl_web_status = self._lbl(p, "", font=self.fonts.body, anchor="w", justify="left",
+                                        wraplength=int(440 * self.px))
+        self.lbl_web_status.pack(fill="x", pady=(8, 8))
+        box = tk.Frame(p, bg=BG)
+        box.pack(fill="x")
+        self.qr_canvas = tk.Canvas(box, width=1, height=1, bg=BG, highlightthickness=0)
+        self.qr_canvas.pack(side="left", anchor="n", padx=(0, 14))
+        right = tk.Frame(box, bg=BG)
+        right.pack(side="left", fill="both", expand=True)
+        self._lbl(right, "Adresa", fg=TEXT, font=self.fonts.body_b, anchor="w").pack(fill="x")
+        self.e_web_url = ttk.Entry(right, width=44)
+        self.e_web_url.pack(fill="x", pady=(2, 6))
+        bf = tk.Frame(right, bg=BG)
+        bf.pack(fill="x")
+        ttk.Button(bf, text="Zkopírovat adresu", command=self.on_web_copy).pack(side="left")
+        ttk.Button(bf, text="Nový klíč", command=self.on_web_new_key).pack(side="left", padx=8)
+        self._lbl(right, "Kdo zná adresu, může ventilátor ovládat. Nový klíč starou adresu zneplatní.",
+                  anchor="w", justify="left", wraplength=int(300 * self.px)).pack(fill="x", pady=(8, 0))
+        self._lbl(p, "Windows se při prvním zapnutí zeptá, zda AntFan smí do sítě. Povolte soukromé "
+                     "sítě, jinak se telefon nepřipojí.",
+                  anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(12, 0))
+        self._web_refresh_page()
 
     # --- Diagnostika
     def _page_diag(self, p):
@@ -932,6 +997,7 @@ class App:
         self._ant_error = False
         self.controller.reset()
         self.history.clear()
+        self.drink.reset()
         self.backend.start_monitor(devs)
 
     def on_stop(self):
@@ -1044,6 +1110,253 @@ class App:
     def _update_segment(self):
         self.seg.set("auto" if self.auto_var.get() else self.manual_level)
 
+    # ============================================================ mobil
+    def _web_sync(self):
+        """Spustí nebo zastaví server podle nastavení."""
+        c = self.cfg
+        self.web_error = ""
+        if self.web_on:
+            if not c.web_key:
+                c.web_key = web.new_key()
+                config_mod.save(c)
+            self.web.key = c.web_key
+            if not (self.web.running and self.web.port == c.web_port):
+                try:
+                    self.web.start(c.web_port, c.web_key)
+                except OSError as e:
+                    log.warning("Web pro mobil nejde spustit: %s", e)
+                    self.web_error = f"Port {c.web_port} nejde použít (obsazený?). Zvolte jiný."
+                    self.web_on = False
+        else:
+            self.web.stop()
+        self._web_refresh_page()
+
+    def _web_url(self) -> str:
+        return web.page_url(web.lan_ip(), self.web.port, self.web.key) if self.web.running else ""
+
+    def _web_refresh_page(self):
+        if hasattr(self, "btn_web"):  # hlavní okno
+            self.btn_web.configure(text="Vypnout mobil" if self.web.running else "Zapnout mobil")
+            if self.web.running:
+                self.st_web.set("Mobil zapnutý", OK)
+            elif self.web_error:
+                self.st_web.set("Mobil: chyba", BAD)
+            else:
+                self.st_web.set("", BG)
+        if not hasattr(self, "lbl_web_status"):
+            return
+        self.web_var.set(self.web.running)
+        url = self._web_url()
+        if self.web_error:
+            text, col = self.web_error, BAD
+        elif url:
+            text, col = f"Běží na portu {self.web.port}. Otevřete adresu v telefonu nebo načtěte QR kód.", OK
+        else:
+            text, col = "Vypnuto.", MUTED
+        self.lbl_web_status.configure(text=text, fg=col)
+        self.e_web_url.configure(state="normal")
+        self.e_web_url.delete(0, "end")
+        self.e_web_url.insert(0, url)
+        self.e_web_url.configure(state="readonly")
+        self._draw_qr(url)
+
+    def _draw_qr(self, url):
+        cv = self.qr_canvas
+        cv.delete("all")
+        if not url:
+            cv.configure(width=1, height=1)
+            return
+        try:
+            m = qr.encode(url)
+        except ValueError:
+            cv.configure(width=1, height=1)
+            return
+        cell = max(2, int(3 * self.px))
+        quiet = 4
+        side = (len(m) + 2 * quiet) * cell
+        cv.configure(width=side, height=side)
+        cv.create_rectangle(0, 0, side, side, fill="#ffffff", outline="")  # QR vždy tmavé na bílém
+        for y, row in enumerate(m):
+            for x, dark in enumerate(row):
+                if dark:
+                    x0, y0 = (x + quiet) * cell, (y + quiet) * cell
+                    cv.create_rectangle(x0, y0, x0 + cell, y0 + cell, fill="#000000", outline="")
+
+    def on_web_toggle(self):
+        self.web_on = self.web_var.get()
+        self._web_sync()
+
+    def on_web_button(self):
+        """Tlačítko Mobil v hlavním okně: zapne/vypne server pro tento běh programu."""
+        first = not self.cfg.web_key
+        self.web_on = not self.web.running
+        self._web_sync()
+        if self.web_error or (self.web_on and first):  # poprvé ukázat QR kód, při chybě důvod
+            self.open_settings("mobile")
+
+    def on_web_autostart(self):
+        self.cfg.web_autostart = self.web_auto_var.get()
+        config_mod.save(self.cfg)
+
+    def on_web_port(self):
+        try:
+            port = int(self.e_web_port.get())
+            if not 1024 <= port <= 65535:
+                raise ValueError
+        except ValueError:
+            self.lbl_web_status.configure(text="Port musí být číslo 1024–65535.", fg=BAD)
+            return
+        if port != self.cfg.web_port:
+            self.cfg.web_port = port
+            config_mod.save(self.cfg)
+            self._web_sync()
+
+    def on_web_new_key(self):
+        self.cfg.web_key = web.new_key()
+        config_mod.save(self.cfg)
+        self._web_sync()
+
+    def on_web_copy(self):
+        url = self._web_url()
+        if not url:
+            self.lbl_web_status.configure(text="Nejdřív ovládání z mobilu povolte.", fg=BAD)
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(url)
+        self.lbl_web_status.configure(text="Adresa zkopírována.", fg=OK)
+
+    def _web_publish(self, desired, reason, status, status_col):
+        """Snímek stavu pro server (volá _tick v hlavním vlákně)."""
+        now = time.monotonic()
+        if not self.web.running or now - self._web_last < 0.5:
+            return
+        self._web_last = now
+        ctrl = self.controller
+        try:
+            rxq = self.backend.rx_quality() if self.backend is not None else {}
+        except Exception:  # noqa: BLE001
+            rxq = {}
+        rx = []
+        for key, q in rxq.items():
+            d = self.devices.get(key)
+            rx.append({"name": d.type_name if d else str(key[0]), "q": q})
+        hint = self.lbl_ride_hint.cget("text")
+        if not self.sim_var.get() and not self.fan_ok:
+            hint = ("Ventilátor nepřipojen. " + hint).strip()
+        p = ctrl.power_smoothed
+        self.web.publish({
+            "power": None if p is None else round(p),
+            "power_label": self.t_power["head"].cget("text"),
+            "power_sub": self.t_power["sub"].cget("text"),
+            "power_bad": bool(ctrl.power_gap_s),
+            "hr": ctrl.hr_now,
+            "hr_sub": self.t_hr["sub"].cget("text"),
+            "level": desired,
+            "reason": reason,
+            "auto": self.auto_var.get(),
+            "manual": self.manual_level,
+            "max_level": self.cfg.fan.max_level,
+            "status": status,
+            "status_color": {OK: "ok", BAD: "bad", ACCENT: "accent"}.get(status_col, "faint"),
+            "rx": rx,
+            "hint": hint,
+            "drink": None if self.drink.current is None else
+            {"id": self.drink.current.id, "text": self.drink.current.text, "ml": self.drink.current.ml},
+        })
+
+    # ============================================================ pití
+    def _build_drink_strip(self, r):
+        # holý rámeček bez obsahu nezabírá místo; pruh se do něj vkládá jen při připomínce
+        self.drink_box = tk.Frame(r, bg=BG)
+        self.drink_box.pack(fill="x", padx=12)
+        self.lbl_drink = tk.Label(self.drink_box, text="", bg=ACCENT_BG, fg=ACCENT, font=self.fonts.body,
+                                  anchor="w", padx=10, pady=4, cursor="hand2")
+        self.lbl_drink.bind("<Button-1>", lambda e: self.on_drink_dismiss())
+        self._drink_shown = None
+
+    def _page_drink(self, p):
+        self._page_head(p, "Pití", "Nenápadná připomínka pod grafem během jízdy. Interval a množství "
+                                   "se řídí délkou jízdy, výkonem a teplotou v místnosti.")
+        self.drink_var = tk.BooleanVar(value=self.cfg.drink_enabled)
+        ttk.Checkbutton(p, text="Připomínat pití", variable=self.drink_var,
+                        command=self._drink_apply).pack(anchor="w")
+        g = tk.Frame(p, bg=BG)
+        g.pack(fill="x", pady=(8, 0))
+        t = self.cfg.drink_temp_c
+        rows = (("Teplota v místnosti", "" if t is None else f"{t:g}", "°C, prázdné = nepočítat", "e_drink_temp"),
+                ("Interval", f"{self.cfg.drink_interval_min:g}" if self.cfg.drink_interval_min else "",
+                 "min, prázdné = automaticky", "e_drink_int"))
+        for i, (label, val, unit, attr) in enumerate(rows):
+            ttk.Label(g, text=label).grid(row=i, column=0, sticky="w", pady=2)
+            e = ttk.Entry(g, width=6, justify="center")
+            e.insert(0, val)
+            e.grid(row=i, column=1, sticky="w", padx=10, pady=2)
+            e.bind("<KeyRelease>", lambda ev: self._drink_schedule())
+            e.bind("<FocusOut>", lambda ev: self._drink_apply())
+            self._lbl(g, unit).grid(row=i, column=2, sticky="w")
+            setattr(self, attr, e)
+        self.lbl_drink_err = self._lbl(p, "", fg=BAD, font=self.fonts.body, anchor="w")
+        self.lbl_drink_err.pack(fill="x", pady=(8, 0))
+        self.lbl_drink_now = self._lbl(p, "", font=self.fonts.body, anchor="w")
+        self.lbl_drink_now.pack(fill="x")
+        self._lbl(p, "Počítá jen během měření, když šlapete. Základ je zhruba 500 ml za hodinu, při vyšším "
+                     "výkonu až 750 ml, nad 22 °C víc. Jen orientační hodnoty, řiďte se i žízní. "
+                     "Připomínka zmizí kliknutím nebo po minutě.",
+                  anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(4, 0))
+
+    def _drink_schedule(self):
+        if self._drink_job is not None:
+            self.root.after_cancel(self._drink_job)
+        self._drink_job = self.root.after(700, self._drink_apply)
+
+    def _drink_apply(self):
+        self._drink_job = None
+        try:
+            if not self.e_drink_temp.winfo_exists():
+                return
+            temp = drink.parse_temp(self.e_drink_temp.get())
+            interval = drink.parse_interval(self.e_drink_int.get())
+        except ValueError as e:
+            self.lbl_drink_err.configure(text=f"Neuloženo: {e}" if "–" in str(e) else "Neuloženo: Zadejte čísla.")
+            return
+        except tk.TclError:
+            return
+        changed = (interval, temp) != (self.cfg.drink_interval_min, self.cfg.drink_temp_c)
+        self.cfg.drink_enabled = self.drink_var.get()
+        self.cfg.drink_temp_c, self.cfg.drink_interval_min = temp, interval
+        config_mod.save(self.cfg)
+        self.lbl_drink_err.configure(text="")
+        d = self.drink
+        d.temp_c, d.manual_min = temp, interval
+        if d.enabled != self.cfg.drink_enabled or changed:
+            d.reschedule()
+        d.enabled = self.cfg.drink_enabled
+
+    def on_drink_dismiss(self):
+        self.drink.dismiss()
+        self._drink_show(None)
+
+    def _drink_show(self, rem):
+        rid = rem.id if rem else None
+        if rid == self._drink_shown:
+            return
+        self._drink_shown = rid
+        if rem is None:
+            self.lbl_drink.pack_forget()
+            self.drink_box.configure(height=1)  # bez potomků by si Tk nechal poslední výšku
+        else:
+            self.lbl_drink.configure(text=rem.text)
+            self.lbl_drink.pack(fill="x", pady=(0, 6))
+
+    def _drink_tick(self, now):
+        ctrl = self.controller
+        rem = self.drink.update(now, self.backend.state == "monitoring", ctrl.power_now,
+                                ctrl.cadence_now, ctrl.hr_now)
+        self._drink_show(rem)
+        txt = ("Teď: " + self.drink.summary()) if self.drink.enabled else ""
+        if self.lbl_drink_now.cget("text") != txt:
+            self.lbl_drink_now.configure(text=txt)
+
     # ============================================================ smyčka
     def _poll_events(self):
         tree_dirty = False
@@ -1088,6 +1401,8 @@ class App:
                     if actual is not None:
                         self.fan_actual = actual
                     self._set_fan_status(text, ok)
+                elif kind == "web_level":  # z mobilu, stejně jako kliknutí na přepínač
+                    self.on_segment(ev[1])
         except queue.Empty:
             pass
         # seznam stačí překreslit max. 2× za s (hodnoty chodí ~4× za s od každého senzoru)
@@ -1248,6 +1563,9 @@ class App:
             self.btn_run.configure(text=want)
         self.lbl_diag_status.configure(text=self.ant_status_full)
         self._update_segment()
+        self._drink_tick(now)
+        self.overlay.tick(now)
+        self._web_publish(desired, reason, text, col)
 
         if now - self._last_hist >= 1.0:
             self._last_hist = now
@@ -1324,6 +1642,7 @@ class App:
             return
         self._cleaned = True
         try:
+            self.web.stop()
             self.fan_worker.stop()
             self.backend.shutdown()
         except Exception:  # noqa: BLE001

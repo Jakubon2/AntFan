@@ -39,6 +39,18 @@ class AppConfig:
     simulation: bool = False
     auto_mode: bool = True
     theme: str = "system"  # light | dark | system
+    web_autostart: bool = False  # ovládání z mobilu zapnout hned po spuštění
+    web_port: int = 8686
+    web_key: str = ""  # tajná část adresy /m/<klíč>
+    drink_enabled: bool = False  # připomínka pití
+    drink_temp_c: float | None = 20.0  # teplota v místnosti; None = nepočítat
+    drink_interval_min: float = 0.0  # 0 = automaticky
+    overlay_enabled: bool = False  # lišta navrchu přes Rouvy
+    overlay_size: str = "standard"  # mini | standard
+    overlay_second: str = "hr_pct"  # hr_pct | zone | none
+    overlay_alerts_only: bool = False
+    overlay_x: int | None = None  # None = pravý horní roh
+    overlay_y: int | None = None
 
 
 def _merge(cls, data: dict):
