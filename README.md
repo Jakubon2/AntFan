@@ -130,6 +130,8 @@ Když jeden zdroj chybí (například nemáte powermetr), použije se automatick
 - **Vyhlazení**: průměr za posledních N sekund. Výkon na kole hodně kolísá.
 
 ### Nastavení → Chování
+**Předstih** (výchozí vypnutý): když okamžitý výkon drží nad prahem vyššího stupně zadaný počet sekund (výchozí 3 s), stupeň naskočí hned, nečeká se na průměr. Krátký výkyv pod tu dobu nic nezmění a snižování zůstává pomalé.
+
 - **Prodleva před snížením**: jak dlouho musí být hodnota nízko, než se stupeň sníží. Zvýšení je vždy okamžité.
 - **Dofukování po tréninku**: po skončení šlapání ventilátor ještě N minut fouká na zvoleném stupni (výchozí 3 min na stupni 1) a pak se vypne. Hodnota 0 dofukování vypne.
 - **Bez dat → stupeň**: co udělat, když po zadanou dobu nepřijdou žádná data (výchozí: vypnout). Dofukování má přednost.

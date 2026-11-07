@@ -9,6 +9,9 @@
 - Režim "chytrý": výkon rozhoduje o zvýšení (reaguje hned), tep jen drží
   dosažený stupeň, dokud neklesne (tep reaguje se zpožděním 30–60 s, takže
   přes krátký odpočinek mezi intervaly ventilátor nezpomalí).
+- Předstih (volitelný): když okamžitý výkon drží nad prahem vyššího stupně
+  celé "lead_s" sekundy, stupeň se zvýší hned, bez čekání na průměr.
+  Snižování zůstává pomalé.
 - Dofukování: po skončení šlapání ventilátor ještě chvíli běží na zvoleném
   stupni a teprve pak se vypne.
 - Výkon chodí z ANT+ s každou zprávou (~4× za s); konec šlapání pozná
@@ -51,6 +54,8 @@ class ControlConfig:
     no_data_level: int = 0
     cooldown_s: float = 180.0       # dofukování po skončení (0 = vypnuto)
     cooldown_level: int = 1
+    lead_enabled: bool = False      # předstih při nástupu výkonu
+    lead_s: float = 3.0
 
     def power_levels(self) -> list[int]:
         if self.threshold_mode == "relative":
@@ -114,6 +119,8 @@ class Controller:
         self.power_src = SourceLevel()
         self.hr_src = SourceLevel()
         self.power_avg = Smoother()
+        self._raw_power: deque[tuple[float, int | None]] = deque()
+        self.lead_active = False
         self.hr_avg = Smoother()
         self._last_power: tuple[float, int, int | None] | None = None  # (t, W, kadence)
         self._last_hr: tuple[float, int] | None = None
@@ -150,7 +157,7 @@ class Controller:
         mode = self.cfg.source_mode
         pl, hl = self.power_level, self.hr_level
         if mode == "power" or (mode in ("smart", "max") and not have_h):
-            return (pl, "výkon") if have_p else (0, "chybí výkon")
+            return (pl, "předstih" if self.lead_active else "výkon") if have_p else (0, "chybí výkon")
         if mode == "hr" or (mode in ("smart", "max") and not have_p):
             return (hl, "tep") if have_h else (0, "chybí tep")
         if mode == "max":
@@ -158,8 +165,25 @@ class Controller:
         # smart: výkon zvyšuje, tep může jen podržet dosažený stupeň
         hold = min(self._raw_level, hl)
         if pl >= hold:
-            return pl, "výkon"
+            return pl, "výkon" if not self.lead_active else "předstih"
         return hold, "tep drží stupeň"
+
+    def _lead(self, now: float, thresholds: list[int]) -> int:
+        """Předstih: celé okno lead_s nad prahem vyššího stupně => zvýšit hned."""
+        win = max(1.0, self.cfg.lead_s)
+        self._raw_power.append((now, self.power_now))
+        while self._raw_power and now - self._raw_power[0][0] > win + 0.5:
+            self._raw_power.popleft()
+        vals = [v for t, v in self._raw_power if now - t <= win]
+        covered = self._raw_power and now - self._raw_power[0][0] >= win
+        if not covered or not vals or any(v is None for v in vals):
+            return self.power_src.level
+        low = min(vals)
+        lead = sum(1 for t in thresholds if low >= t)
+        if lead > self.power_src.level:
+            self.power_src.level = lead
+            self.power_src._below_since = None
+        return self.power_src.level
 
     def tick(self, now: float | None = None) -> int:
         now = time.monotonic() if now is None else now
@@ -189,6 +213,12 @@ class Controller:
 
         self.power_level = self.power_src.update(self.power_smoothed, c.power_levels()[:n],
                                                  c.power_hysteresis, c.down_delay_s, now)
+        self.lead_active = False
+        if c.lead_enabled:
+            self.power_level = self._lead(now, c.power_levels()[:n])
+            sm = self.power_smoothed
+            self.lead_active = sm is not None and self.power_level > sum(
+                1 for t in c.power_levels()[:n] if sm >= t)
         self.hr_level = self.hr_src.update(self.hr_smoothed, c.hr_levels()[:n],
                                            c.hr_hysteresis, c.down_delay_s, now)
 
