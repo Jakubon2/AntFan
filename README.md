@@ -145,7 +145,7 @@ Postup testování všech funkcí je v souboru [TESTOVANI.md](TESTOVANI.md).
 ## Ovládání z mobilu
 Hodnoty (výkon, tep, stupeň) a přepínač **Auto | Vyp | 1–3** lze mít i na telefonu na řídítkách. Telefon musí být ve stejné Wi-Fi jako počítač, nic se neinstaluje.
 
-1. **Nastavení → Mobil → Povolit ovládání z mobilu** (výchozí je vypnuto).
+1. V hlavním okně klikněte na **Zapnout mobil** (výchozí je vypnuto). Poprvé se otevře Nastavení → Mobil s QR kódem. Po zavření programu se ovládání z mobilu zase vypne. Kdo ho chce mít pořád, zaškrtne v Nastavení → Mobil **Zapnout hned po spuštění programu**.
 2. Načtěte v telefonu QR kód, nebo otevřete adresu ve tvaru `http://<IP počítače>:8686/m/<klíč>`.
 3. Windows se napoprvé zeptá, zda AntFan smí do sítě. Povolte **soukromé sítě**, jinak se telefon nepřipojí.
 

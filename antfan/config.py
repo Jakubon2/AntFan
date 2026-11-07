@@ -33,7 +33,7 @@ class AppConfig:
     simulation: bool = False
     auto_mode: bool = True
     theme: str = "system"  # light | dark | system
-    web_enabled: bool = False  # ovládání z mobilu (server v LAN)
+    web_autostart: bool = False  # ovládání z mobilu zapnout hned po spuštění
     web_port: int = 8686
     web_key: str = ""  # tajná část adresy /m/<klíč>
 

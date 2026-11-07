@@ -194,6 +194,7 @@ class App:
         self._last_bars = None
         self.web = web.WebServer(self.events)  # ovládání z mobilu; přežije _rebuild_ui
         self.web_error = ""
+        self.web_on = self.cfg.web_autostart  # zapíná se tlačítkem Mobil, trvale jen volbou v Nastavení
         self._web_last = 0.0
 
         for d in self.cfg.selected:
@@ -325,6 +326,10 @@ class App:
         self.st_fan = StatusDot(top, f)
         self.st_fan.pack(side="left")
         ttk.Button(top, text="Nastavení", command=lambda: self.open_settings()).pack(side="right")
+        self.btn_web = ttk.Button(top, text="Zapnout mobil", command=self.on_web_button)
+        self.btn_web.pack(side="right", padx=(8, 0))
+        self.st_web = StatusDot(top, f)
+        self.st_web.pack(side="left", padx=(14, 0))
         self.btn_run = ttk.Button(top, text="Spustit měření", command=self.on_run_toggle)
         self.btn_run.pack(side="right", padx=8)
         _hline(r)
@@ -636,9 +641,14 @@ class App:
     def _page_mobile(self, p):
         self._page_head(p, "Mobil", "Hodnoty a přepínač stupně na telefonu ve stejné Wi-Fi. "
                                     "Stačí otevřít adresu v prohlížeči, nic se neinstaluje.")
-        self.web_var = tk.BooleanVar(value=self.cfg.web_enabled)
-        ttk.Checkbutton(p, text="Povolit ovládání z mobilu", variable=self.web_var,
+        self.web_var = tk.BooleanVar(value=self.web_on)
+        ttk.Checkbutton(p, text="Zapnuto", variable=self.web_var,
                         command=self.on_web_toggle).pack(anchor="w")
+        self.web_auto_var = tk.BooleanVar(value=self.cfg.web_autostart)
+        ttk.Checkbutton(p, text="Zapnout hned po spuštění programu", variable=self.web_auto_var,
+                        command=self.on_web_autostart).pack(anchor="w")
+        self._lbl(p, "Jinak se zapíná tlačítkem Zapnout mobil v hlavním okně a po zavření programu se vypne.",
+                  anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(2, 0))
         row = tk.Frame(p, bg=BG)
         row.pack(fill="x", pady=(8, 0))
         ttk.Label(row, text="Port").pack(side="left")
@@ -966,7 +976,7 @@ class App:
         """Spustí nebo zastaví server podle nastavení."""
         c = self.cfg
         self.web_error = ""
-        if c.web_enabled:
+        if self.web_on:
             if not c.web_key:
                 c.web_key = web.new_key()
                 config_mod.save(c)
@@ -977,6 +987,7 @@ class App:
                 except OSError as e:
                     log.warning("Web pro mobil nejde spustit: %s", e)
                     self.web_error = f"Port {c.web_port} nejde použít (obsazený?). Zvolte jiný."
+                    self.web_on = False
         else:
             self.web.stop()
         self._web_refresh_page()
@@ -985,8 +996,17 @@ class App:
         return web.page_url(web.lan_ip(), self.web.port, self.web.key) if self.web.running else ""
 
     def _web_refresh_page(self):
+        if hasattr(self, "btn_web"):  # hlavní okno
+            self.btn_web.configure(text="Vypnout mobil" if self.web.running else "Zapnout mobil")
+            if self.web.running:
+                self.st_web.set("Mobil zapnutý", OK)
+            elif self.web_error:
+                self.st_web.set("Mobil: chyba", BAD)
+            else:
+                self.st_web.set("", BG)
         if not hasattr(self, "lbl_web_status"):
             return
+        self.web_var.set(self.web.running)
         url = self._web_url()
         if self.web_error:
             text, col = self.web_error, BAD
@@ -1024,9 +1044,20 @@ class App:
                     cv.create_rectangle(x0, y0, x0 + cell, y0 + cell, fill="#000000", outline="")
 
     def on_web_toggle(self):
-        self.cfg.web_enabled = self.web_var.get()
-        config_mod.save(self.cfg)
+        self.web_on = self.web_var.get()
         self._web_sync()
+
+    def on_web_button(self):
+        """Tlačítko Mobil v hlavním okně: zapne/vypne server pro tento běh programu."""
+        first = not self.cfg.web_key
+        self.web_on = not self.web.running
+        self._web_sync()
+        if self.web_error or (self.web_on and first):  # poprvé ukázat QR kód, při chybě důvod
+            self.open_settings("mobile")
+
+    def on_web_autostart(self):
+        self.cfg.web_autostart = self.web_auto_var.get()
+        config_mod.save(self.cfg)
 
     def on_web_port(self):
         try:
