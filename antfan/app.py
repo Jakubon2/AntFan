@@ -35,6 +35,7 @@ from .ride_ui import RideMixin
 from .pairing_ui import PairingUi
 from .single_instance import SingleInstance
 from . import vitr_ui
+from .battery_ui import BatteryUIMixin
 
 log = logging.getLogger("antfan")
 
@@ -188,7 +189,7 @@ def _hline(parent):
     tk.Frame(parent, height=1, bg=BORDER).pack(fill="x")
 
 
-class App(ProfilesMixin, RideMixin, PairingUi):
+class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
     def __init__(self, root: tk.Tk):
         self.root = root
         self.cfg = config_mod.load()
@@ -217,6 +218,7 @@ class App(ProfilesMixin, RideMixin, PairingUi):
         self.overlay = overlay.Overlay(self)  # lišta navrchu; okno se staví znovu po _rebuild_ui
         self.overlay_var = tk.BooleanVar(value=self.cfg.overlay_enabled)
         self._pair_init()
+        self._batt_init()
 
         for d in self.cfg.selected:
             fd = FoundDevice(d[0], d[1], d[2] if len(d) > 2 else 0)
@@ -345,6 +347,7 @@ class App(ProfilesMixin, RideMixin, PairingUi):
         r, f = self.root, self.fonts
         top = tk.Frame(r, bg=BG)
         top.pack(fill="x", padx=14, pady=10)
+        self._batt_build_bar(r, top)
         tk.Label(top, text="AntFan", bg=BG, fg=TEXT, font=f.title).pack(side="left", padx=(0, 14))
         self.st_ant = StatusDot(top, f)
         self.st_ant.pack(side="left", padx=(0, 14))
@@ -509,10 +512,11 @@ class App(ProfilesMixin, RideMixin, PairingUi):
         ttk.Button(row, text="Najít moje senzory", command=self.on_pair).pack(side="left", padx=(6, 0))
         self.lbl_scan = self._lbl(row, "", font=self.fonts.body)
         self.lbl_scan.pack(side="left", padx=10)
-        cols = ("sel", "type", "id", "value", "rx")
+        cols = ("sel", "type", "id", "value", "rx", "batt")
         self.tree = ttk.Treeview(p, columns=cols, show="headings", selectmode="none", height=7)
         for c, t, wd in (("sel", "", 30), ("type", "Typ", 110), ("id", "ID", 70),
-                         ("value", "Hodnota", 80), ("rx", "Příjem", 70)):
+                         ("value", "Hodnota", 80), ("rx", "Příjem", 70),
+                         ("batt", "Baterie", 80)):
             self.tree.heading(c, text=t)
             self.tree.column(c, width=int(wd * self.px), anchor="center" if c != "type" else "w")
         self.tree.tag_configure("weak", foreground=BAD)
@@ -529,6 +533,7 @@ class App(ProfilesMixin, RideMixin, PairingUi):
                      "najednou, s Rouvy na Bluetooth se mohou přetahovat. Umí-li senzor i ANT+, "
                      "připojte ho jedním z programů přes ANT+.",
                   anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(6, 0))
+        self._batt_build_options(p)
 
     # --- Ventilátor
     def _page_fan(self, p):
@@ -1414,6 +1419,9 @@ class App(ProfilesMixin, RideMixin, PairingUi):
                     if not (base_type(key[1]) == FE_TYPE and now - self._last_pm_value < 3.0):
                         self.controller.feed(vkind, value, cad)
                     tree_dirty = True
+                elif kind == "battery":
+                    self._batt_on_event(ev)
+                    tree_dirty = True
                 elif kind == "scan_done":
                     tree_dirty = True
                     self._on_scan_done()
@@ -1458,7 +1466,10 @@ class App(ProfilesMixin, RideMixin, PairingUi):
             if q is not None and q < 80:
                 tags = ("weak",)
                 weak.append(f"{d.type_name} #{d.device_id} ({q} %)")
-            values = ("☑" if d.key in self.selected else "☐", d.type_name, d.device_id, val, rx_txt)
+            if self.batt_low(d.key):
+                tags = ("weak",)
+            values = ("☑" if d.key in self.selected else "☐", d.type_name, d.device_id, val, rx_txt,
+                      self.batt_text(d.key))
             if iid in existing:
                 self.tree.item(iid, values=values, tags=tags)
                 self.tree.move(iid, "", idx)
@@ -1473,7 +1484,9 @@ class App(ProfilesMixin, RideMixin, PairingUi):
         for key, q in rxq.items():
             d = self.devices.get(key)
             name = d.type_name if d else str(key[0])
-            items.append((f"{name}  {'…' if q is None else f'{q} %'}", BAD if q is not None and q < 80 else MUTED))
+            low = self.batt_low(key)
+            items.append((f"{name}  {'…' if q is None else f'{q} %'}" + (" · slabá baterie" if low else ""),
+                          BAD if low or (q is not None and q < 80) else MUTED))
         while len(self.rx_labels) < len(items):
             lb = self._lbl(self.rx_box, "", font=self.fonts.body)
             lb.pack(side="left", padx=(14, 0))

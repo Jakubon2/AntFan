@@ -71,6 +71,9 @@ class AppConfig:
         self.control  # noqa: B018 – zajistí platný aktivní profil
         self.profiles[self.active_profile] = value
     coexist_guide: bool = True  # průvodce souběhem s Rouvy/Zwift (coexist.py)
+    battery_warn: bool = True
+    battery_warn_level: int = 4  # 4 = slabá, 5 = kritická (senzory bez %)
+    battery_warn_pct: int = 20   # senzory, které posílají %
 
 
 def _merge(cls, data: dict):

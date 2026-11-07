@@ -166,6 +166,9 @@ AntFan umí kromě ANT+ i senzory s Bluetooth (BLE). Dongle pro ně není potře
 - **Windows:** Windows 10 (1809) nebo 11 a adaptér Bluetooth 4.0 nebo novější.
 - **macOS:** aplikace musí mít v `Info.plist` klíč `NSBluetoothAlwaysUsageDescription`, jinak ji macOS při prvním použití Bluetooth ukončí. AntFan to předem zkusí v samostatném procesu a místo pádu ukáže chybu. Při spuštění z Terminálu přes `python` tento klíč chybí, Bluetooth jde jen v sestavené AntFan.app. Přístup se povoluje v Nastavení systému → Soukromí a zabezpečení → Bluetooth.
 
+### Baterie senzorů
+Sloupec **Baterie** v Nastavení → Senzory ukazuje procenta (tepový pás, pokud je posílá) nebo stav nová / dobrá / OK / slabá / kritická. Slabá baterie je červeně a v okně jízdy u příjmu senzoru je „· slabá baterie“. Když baterie klesne pod hranici, ukáže se v okně jízdy jednou za spuštění pruh s upozorněním. Zapnutí a hranice (slabá / kritická, u senzorů s procenty pod 20 %) jsou v Nastavení → Senzory. Senzory posílají stav baterie zhruba jednou za minutu, údaj se proto objeví až chvíli po spuštění měření.
+
 ## Řízení ventilátoru
 Přepínač dole v okně: **Auto** řídí ventilátor podle pravidel, **Vyp/1/2/3** nastaví stupeň ručně. Všechno ostatní je v okně **Nastavení** a ukládá se hned. Tmavý motiv: **Nastavení → Vzhled** (Světlý / Tmavý / Podle systému).
 
@@ -294,6 +297,8 @@ antfan/coexist.py       průvodce souběhem s Rouvy/Zwiftem: detekce aplikací a
 antfan/pairing_ui.py    GUI párování a průvodce (mixin pro App)
 antfan/selftest.py      kontrola sestaveného exe (--selftest)
 antfan/rx.py            příjem ze senzoru: dekódování výkonu, kvalita signálu, diagnostika do logu
+antfan/battery.py       stav baterie (stránka 0x52, u tepového pásu stránka 7)
+antfan/battery_ui.py    baterie v GUI: sloupec, upozornění v okně jízdy, volby
 antfan/usb_diag.py      diagnostika obsazeného donglu, USB reset, oprava úniku v openant
 antfan/single_instance.py  jen jedna spuštěná instance
 antfan/miio_fan.py      protokol miIO pro Xiaomi ventilátor (bez python-miio)
