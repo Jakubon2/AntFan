@@ -142,6 +142,22 @@ Zaškrtnutím **Simulace (bez hardwaru)** program vygeneruje falešné senzory a
 
 Postup testování všech funkcí je v souboru [TESTOVANI.md](TESTOVANI.md).
 
+## Profily
+Každý profil má vlastní řízení: FTP, max. tep, prahy, režim řízení a chování. Hodí se pro víc jezdců na jednom trenažéru nebo pro různé tréninky (například Vytrvalost a Intervaly).
+
+- **Přepnutí:** kliknutím na „Profil: …“ v horní liště okna jízdy, nebo v **Nastavení → Řízení** nahoře. Přepnout jde i za jízdy, nové prahy platí hned.
+- **Nový** zkopíruje aktuální profil, **Přejmenovat** změní jméno, **Smazat** smaže aktuální profil (poslední smazat nejde).
+- Nastavení ze starší verze se při prvním spuštění převede na profil **Výchozí**.
+
+## Shrnutí po jízdě
+Během měření program 1× za sekundu zaznamenává výkon (okamžitý i vyhlazený), kadenci, tep a stupeň ventilátoru. Po **Zastavit**, nebo když po skončení šlapání doběhne dofukování, ukáže okno **Shrnutí jízdy**. Jen když jízda trvala aspoň 5 minut a byl výkon nebo tep.
+
+- **Čísla:** délka, průměrný a max. výkon, NP (normalizovaný výkon), IF a TSS podle FTP profilu, práce v kJ, průměrný a max. tep, průměrná kadence.
+- **Čas v zónách:** výkon v 7 zónách podle FTP (Coggan), tep v 5 zónách podle % max. tepu, čas na jednotlivých stupních ventilátoru.
+- **Posun tepu:** o kolik % se ve druhé polovině jízdy zhoršil poměr výkon/tep proti první. Pod 5 % je dobré. Vyšší hodnota znamená, že tep při stejném výkonu stoupal (únava, teplo, málo pití).
+- **Soubory:** každá jízda se uloží jako CSV do `%APPDATA%\AntFan\jizdy\RRRR-MM-DD_HHMM.csv` (oddělovač středník, otevře se v Excelu). Konec po dofukování, kdy se už nešlapalo, se odřízne. Rozjetá jízda se uloží i při zavření programu.
+- **Starší jízdy:** **Nastavení → Jízdy** ukáže seznam posledních jízd. Dvojklikem otevřete jejich shrnutí.
+
 ## Řešení problémů
 
 ### „Dongle je připojen k jiné aplikaci“, i když žádná neběží
@@ -184,5 +200,9 @@ antfan/usb_diag.py      diagnostika obsazeného donglu, USB reset, oprava úniku
 antfan/single_instance.py  jen jedna spuštěná instance
 antfan/miio_fan.py      protokol miIO pro Xiaomi ventilátor (bez python-miio)
 antfan/controller.py    výpočet stupně: chytrý režim, % FTP, vyhlazení, hystereze, dofukování
+antfan/profiles.py      profily jezdců (každý má vlastní řízení)
+antfan/ride.py          záznam jízdy, NP/IF/TSS, zóny, posun tepu, CSV
+antfan/ride_ui.py       okno Shrnutí jízdy a stránka Jízdy
+tests/                  unit testy: python -m unittest discover tests
 antfan/app.py           GUI (tkinter)
 ```
