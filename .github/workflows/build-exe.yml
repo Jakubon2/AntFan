@@ -27,10 +27,14 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller==6.11.1
 
+      - name: Testy
+        run: python -m unittest discover -v tests
+
       - name: Sestavení
         run: >
           pyinstaller --noconfirm --onefile --windowed --name AntFan
           --collect-all libusb_package --collect-submodules openant
+          --collect-all bleak --collect-all winrt
           AntFan.pyw
 
       - name: Kontrola exe (selftest)

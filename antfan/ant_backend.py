@@ -37,6 +37,17 @@ FE_TYPE = 17  # chytrý trenažér (ANT+ FE-C) – AntFan ho jen poslouchá, neo
 SUPPORTED_TYPES = {HR_TYPE: "Tepový pás", PM_TYPE: "Powermetr", FE_TYPE: "Trenažér"}
 POWER_TYPES = (PM_TYPE, FE_TYPE)
 MAX_CHANNELS = 8
+# Bluetooth senzory (ble_backend.py) mají typ posunutý o BLE_OFFSET: 1120 = tepový pás přes BT
+BLE_OFFSET = 1000
+
+
+def is_ble(device_type: int) -> bool:
+    return device_type >= BLE_OFFSET
+
+
+def base_type(device_type: int) -> int:
+    """Typ podle ANT+ (HR_TYPE / PM_TYPE / FE_TYPE) i pro Bluetooth senzory."""
+    return device_type % BLE_OFFSET
 
 
 @dataclass
@@ -53,7 +64,8 @@ class FoundDevice:
 
     @property
     def type_name(self) -> str:
-        return SUPPORTED_TYPES.get(self.device_type, f"typ {self.device_type}")
+        name = SUPPORTED_TYPES.get(base_type(self.device_type), f"typ {self.device_type}")
+        return f"{name} (BT)" if is_ble(self.device_type) else name
 
 
 def _friendly_error(e: Exception) -> str:

@@ -12,9 +12,9 @@ Program pro Windows 11:
 | Zařízení | Funguje | Nefunguje |
 |---|---|---|
 | **ANT+ dongle** | Garmin ANT+ USB stick (ANTUSB2, `0fcf:1008`), Garmin mini stick (ANTUSB-m, `0fcf:1009`) a většina levných klonů (CooSpo, CYCPLUS, Anself…), které se hlásí stejně | starý stick první generace (`0fcf:1004`), Bluetooth |
-| **Tepový pás** | jakýkoli s ANT+: Garmin HRM, Wahoo TICKR, Scosche Rhythm+, Garmin hodinky se zapnutým *vysíláním tepu* | jen Bluetooth: Polar H9, H10, Verity Sense |
-| **Powermetr** | jakýkoli ANT+: pedály (Garmin Rally, Favero Assioma), kliky (Stages, 4iiii, Quarq) | jen Bluetooth |
-| **Chytrý trenažér** | jakýkoli s ANT+ FE-C: Tacx, Wahoo KICKR, Elite, Zwift Hub… | trenažér jen s Bluetooth |
+| **Tepový pás** | jakýkoli s ANT+: Garmin HRM, Wahoo TICKR, Scosche Rhythm+, Garmin hodinky se zapnutým *vysíláním tepu*; přes Bluetooth i Polar H9, H10, Verity Sense (viz [Bluetooth senzory](#bluetooth-senzory)) | – |
+| **Powermetr** | jakýkoli ANT+: pedály (Garmin Rally, Favero Assioma), kliky (Stages, 4iiii, Quarq); přes Bluetooth každý se službou Cycling Power | – |
+| **Chytrý trenažér** | jakýkoli s ANT+ FE-C: Tacx, Wahoo KICKR, Elite, Zwift Hub…; přes Bluetooth každý s FTMS nebo Cycling Power | Bluetooth trenažér jen s vlastním protokolem (bez FTMS i Cycling Power) |
 | **Ventilátor** | Xiaomi Smart Standing Fan 2 Lite (`dmaker.fan.1c`), odzkoušený | starší Xiaomi se starým protokolem, ventilátory s plynulou rychlostí v %, jiné značky |
 | **Počítač** | Windows 10 a 11 | macOS a Linux zatím ne |
 
@@ -109,7 +109,25 @@ ANT+ vysílá všem přijímačům najednou, takže senzory můžou zároveň vy
   - Za běhu neprochází USB zařízení.
   - Po ztrátě donglu nezatěžuje procesor.
   - Čtení z donglu má vysokou prioritu, takže se zprávy neztrácejí, ani když Rouvy vytěžuje počítač.
-- **Tepový pás Polar:** ANT+ umí Polar H9. Polar H10 vysílá jen Bluetooth, takže ho AntFan přes ANT+ neuvidí.
+- **Tepový pás Polar:** ANT+ umí Polar H9. Polar H10 a Verity Sense vysílají jen Bluetooth, AntFan je najde jako „Tepový pás (BT)“.
+
+## Bluetooth senzory
+AntFan umí kromě ANT+ i senzory s Bluetooth (BLE). Dongle pro ně není potřeba, stačí Bluetooth v počítači.
+
+| Senzor | Bluetooth služba | Co AntFan čte |
+|---|---|---|
+| Tepový pás (BT) | Heart Rate (0x180D) | tep |
+| Powermetr (BT) | Cycling Power (0x1818) | výkon, kadence z otáček klik (když je powermetr posílá) |
+| Trenažér (BT) | Fitness Machine / FTMS (0x1826) | výkon a kadence |
+
+- **Hledat senzory** hledá ANT+ i Bluetooth najednou. Bluetooth senzory mají v seznamu **(BT)**. Když dongle není zapojený, hledá se jen Bluetooth. V systému (Windows Nastavení → Bluetooth) senzory párovat nemusíte.
+- **Měření:** ANT+ senzory jdou přes dongle, BT senzory přes Bluetooth. Jdou kombinovat, třeba pás přes Bluetooth a powermetr přes ANT+. Chyba donglu Bluetooth nezastaví.
+- **Spojení na jednoho:** Bluetooth senzor často dovolí jen 1–2 spojení najednou. Když je pás nebo trenažér přes Bluetooth připojený k Rouvy, AntFan ho nemusí vůbec najít, nebo se o něj budou přetahovat. Umí-li senzor i ANT+, připojte ho jedním programem přes ANT+ a druhým přes Bluetooth.
+- **Ztráta spojení:** AntFan se k senzoru připojí znovu sám, stav je v Nastavení → Diagnostika.
+- **Příjem (%):** u Bluetooth je orientační. Senzory posílají různě často (tep asi 1× za s, výkon 1–4× za s), AntFan odhaduje očekávanou frekvenci z toho, co chodí.
+- **ID** u BT senzoru je číslo, které si AntFan odvodí z adresy zařízení. Adresy se pamatují v `ble_devices.json` vedle `config.json`.
+- **Windows:** Windows 10 (1809) nebo 11 a adaptér Bluetooth 4.0 nebo novější.
+- **macOS:** aplikace musí mít v `Info.plist` klíč `NSBluetoothAlwaysUsageDescription`, jinak ji macOS při prvním použití Bluetooth ukončí. AntFan to předem zkusí v samostatném procesu a místo pádu ukáže chybu. Při spuštění z Terminálu přes `python` tento klíč chybí, Bluetooth jde jen v sestavené AntFan.app. Přístup se povoluje v Nastavení systému → Soukromí a zabezpečení → Bluetooth.
 
 ## Řízení ventilátoru
 Přepínač dole v okně: **Auto** řídí ventilátor podle pravidel, **Vyp/1/2/3** nastaví stupeň ručně. Všechno ostatní je v okně **Nastavení** a ukládá se hned. Tmavý motiv: **Nastavení → Vzhled** (Světlý / Tmavý / Podle systému).
@@ -178,6 +196,7 @@ Ve sloupci **Příjem** je vidět, kolik % zpráv od senzoru za posledních 5 s 
 ## Struktura
 ```
 antfan/ant_backend.py   ANT+ vyhledávání (continuous scan) a měření tepu, powermetru a trenažéru (openant)
+antfan/ble_backend.py   Bluetooth senzory (bleak) a kombinovaný backend ANT+ a Bluetooth
 antfan/selftest.py      kontrola sestaveného exe (--selftest)
 antfan/rx.py            příjem ze senzoru: dekódování výkonu, kvalita signálu, diagnostika do logu
 antfan/usb_diag.py      diagnostika obsazeného donglu, USB reset, oprava úniku v openant
@@ -185,4 +204,5 @@ antfan/single_instance.py  jen jedna spuštěná instance
 antfan/miio_fan.py      protokol miIO pro Xiaomi ventilátor (bez python-miio)
 antfan/controller.py    výpočet stupně: chytrý režim, % FTP, vyhlazení, hystereze, dofukování
 antfan/app.py           GUI (tkinter)
+tests/                  testy (python -m unittest discover tests)
 ```

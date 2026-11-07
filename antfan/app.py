@@ -25,7 +25,8 @@ from tkinter import messagebox, ttk
 from . import __version__
 from . import config as config_mod
 from . import usb_diag
-from .ant_backend import FE_TYPE, HR_TYPE, MAX_CHANNELS, PM_TYPE, AntBackend, FoundDevice, SimulatedBackend
+from .ant_backend import FE_TYPE, HR_TYPE, MAX_CHANNELS, PM_TYPE, FoundDevice, base_type
+from .ble_backend import make_backend
 from .controller import Controller
 from .miio_fan import FanWorker, MiioError, SimulatedFan, XiaomiFan
 from .single_instance import SingleInstance
@@ -480,6 +481,10 @@ class App:
         self._lbl(p, f"Najednou nejvýš {MAX_CHANNELS} senzorů. Trenažér vysílá výkon jako Trenažér "
                      "i jako Powermetr se stejným ID, stačí vybrat jeden.",
                   anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(6, 0))
+        self._lbl(p, "Senzory (BT) jdou přes Bluetooth. Bluetooth senzor často dovolí jen 1–2 spojení "
+                     "najednou, s Rouvy na Bluetooth se mohou přetahovat. Umí-li senzor i ANT+, "
+                     "připojte ho jedním z programů přes ANT+.",
+                  anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(6, 0))
 
     # --- Ventilátor
     def _page_fan(self, p):
@@ -777,7 +782,7 @@ class App:
                 self.backend.shutdown()
             except Exception:  # noqa: BLE001
                 log.exception("shutdown")
-        self.backend = SimulatedBackend(self.events) if self.sim_var.get() else AntBackend(self.events)
+        self.backend = make_backend(self.events, simulation=self.sim_var.get())
 
     def _make_fan(self):
         f = self.cfg.fan
@@ -946,10 +951,10 @@ class App:
                     _, key, vkind, value, cad = ev
                     now = time.monotonic()
                     self.dev_values[key] = (now, value)
-                    if key[1] == PM_TYPE:
+                    if base_type(key[1]) == PM_TYPE:
                         self._last_pm_value = now
                     # powermetr má přednost před trenažérem (je přesnější)
-                    if not (key[1] == FE_TYPE and now - self._last_pm_value < 3.0):
+                    if not (base_type(key[1]) == FE_TYPE and now - self._last_pm_value < 3.0):
                         self.controller.feed(vkind, value, cad)
                     tree_dirty = True
                 elif kind == "scan_done":
@@ -975,12 +980,13 @@ class App:
         except Exception:  # noqa: BLE001
             rxq = {}
         weak = []
-        order = sorted(self.devices.values(), key=lambda d: (d.key not in self.selected, d.device_type != HR_TYPE, d.device_id))
+        order = sorted(self.devices.values(), key=lambda d: (d.key not in self.selected, base_type(d.device_type) != HR_TYPE,
+                                                        d.device_type, d.device_id))
         for idx, d in enumerate(order):
             iid = f"{d.device_id}:{d.device_type}"
             tv = self.dev_values.get(d.key)
             if tv and now - tv[0] < 5:
-                unit = "bpm" if d.device_type == HR_TYPE else "W"
+                unit = "bpm" if base_type(d.device_type) == HR_TYPE else "W"
                 val = f"{tv[1]} {unit}"
             else:
                 val = "–"
@@ -1245,6 +1251,10 @@ def main():
 
         i = sys.argv.index("--selftest")
         sys.exit(run(sys.argv[i + 1] if len(sys.argv) > i + 1 else None))
+    if "--ble-probe" in sys.argv:  # macOS: zkouška oprávnění k Bluetooth (ble_backend)
+        from .ble_backend import probe_main
+
+        sys.exit(probe_main())
     setup_logging()
     try:
         from ctypes import windll  # ostré písmo na Windows s HiDPI

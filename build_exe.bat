@@ -8,6 +8,7 @@ if not exist .venv (
 .venv\Scripts\python -m pip install -r requirements.txt pyinstaller
 .venv\Scripts\pyinstaller --noconfirm --onefile --windowed --name AntFan ^
     --collect-all libusb_package --collect-submodules openant ^
+    --collect-all bleak --collect-all winrt ^
     AntFan.pyw
 echo.
 echo Hotovo: dist\AntFan.exe
