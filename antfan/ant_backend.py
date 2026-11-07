@@ -14,6 +14,7 @@ Do GUI posílá události přes queue.Queue:
   ("value", (id, typ), kind, value, cadence)   kind = "hr" | "power"
       – výkon chodí s každou přijatou zprávou (~4× za s), 0 W = nešlape se
   ("scan_done",)
+  ("battery", (id, typ), pct | None, stav | None)  – jen při změně (battery.py)
 """
 from __future__ import annotations
 
@@ -22,21 +23,35 @@ import logging
 import math
 import queue
 import random
+import sys
 import threading
 import time
 from dataclasses import dataclass
 
 from . import usb_diag
-from .rx import GapClassifier, RxMonitor
+from .battery import BatteryTracker, page_common, page_hr
+from .rx import GapClassifier, RxMonitor, decode_speed
+from .i18n import _, N_
 
 log = logging.getLogger("antfan.ant")
 
 HR_TYPE = 120
 PM_TYPE = 11
 FE_TYPE = 17  # chytrý trenažér (ANT+ FE-C) – AntFan ho jen poslouchá, neovládá
-SUPPORTED_TYPES = {HR_TYPE: "Tepový pás", PM_TYPE: "Powermetr", FE_TYPE: "Trenažér"}
+SUPPORTED_TYPES = {HR_TYPE: N_("Tepový pás"), PM_TYPE: N_("Powermetr"), FE_TYPE: N_("Trenažér")}
 POWER_TYPES = (PM_TYPE, FE_TYPE)
 MAX_CHANNELS = 8
+# Bluetooth senzory (ble_backend.py) mají typ posunutý o BLE_OFFSET: 1120 = tepový pás přes BT
+BLE_OFFSET = 1000
+
+
+def is_ble(device_type: int) -> bool:
+    return device_type >= BLE_OFFSET
+
+
+def base_type(device_type: int) -> int:
+    """Typ podle ANT+ (HR_TYPE / PM_TYPE / FE_TYPE) i pro Bluetooth senzory."""
+    return device_type % BLE_OFFSET
 
 
 @dataclass
@@ -46,6 +61,11 @@ class FoundDevice:
     trans_type: int = 0
     last_value: int | None = None
     last_seen: float = 0.0
+    # jen při hledání (chytré párování, pairing.py): kadence, čítač událostí, síla signálu, název
+    cadence: int | None = None
+    events: int | None = None
+    rssi: int | None = None
+    name: str = ""
 
     @property
     def key(self) -> tuple[int, int]:
@@ -53,20 +73,24 @@ class FoundDevice:
 
     @property
     def type_name(self) -> str:
-        return SUPPORTED_TYPES.get(self.device_type, f"typ {self.device_type}")
+        name = SUPPORTED_TYPES.get(base_type(self.device_type))
+        name = _(name) if name else _("typ {device_type}").format(device_type=self.device_type)
+        return f"{name} (BT)" if is_ble(self.device_type) else name
 
 
 def _friendly_error(e: Exception) -> str:
     if isinstance(e, usb_diag.DongleMissing) or type(e).__name__ == "DriverNotFound":
+        if sys.platform == "darwin":  # na Macu se ovladač neinstaluje
+            return _("ANT+ dongle nenalezen. Je zapojený? Zkuste jiný USB port nebo redukci.")
         return (
-            "ANT+ dongle nenalezen. Je zapojený? Má ovladač libusbK nebo WinUSB "
-            "(viz README)?"
+            _("ANT+ dongle nenalezen. Je zapojený? Má ovladač libusbK nebo WinUSB "
+            "(viz README)?")
         )
     if isinstance(e, usb_diag.DongleBusy) or usb_diag.is_busy_error(e):
         apps, antfans = usb_diag.find_blocking_processes()
         return usb_diag.busy_message(apps, antfans)
     if type(e).__name__ == "NoBackendError":
-        return "Chybí knihovna libusb (pip install libusb-package)."
+        return _("Chybí knihovna libusb (pip install libusb-package).")
     return f"{type(e).__name__}: {e}"
 
 
@@ -82,6 +106,7 @@ class AntBackend:
         self._last_monitor: list | None = None
         self._rx: dict[tuple[int, int], RxMonitor] = {}
         self._gaps = GapClassifier()
+        self._batt = BatteryTracker()
         self._unplug_check = 0.0
         self.state = "idle"
         self._thread = threading.Thread(target=self._worker, name="ant", daemon=True)
@@ -135,7 +160,7 @@ class AntBackend:
                     self._teardown()
                     self._last_monitor = None
                     self.state = "idle"
-                    self._status("Zastaveno")
+                    self._status(_("Zastaveno"))
                 elif kind == "scan":
                     self._last_monitor = None
                     pending = self._do_scan(cmd[1])
@@ -179,24 +204,24 @@ class AntBackend:
                     self._teardown()
                     self.state = "idle"
                     self._last_monitor = None
-                    self.events.put(("ant_error", "Spojení s ANT+ donglem se přerušilo a dongle "
-                                     "teď nejde otevřít.\n\n" + _friendly_error(e)))
+                    self.events.put(("ant_error", _("Spojení s ANT+ donglem se přerušilo a dongle "
+                                     "teď nejde otevřít.\n\n") + _friendly_error(e)))
                     return
             self.state = "unplugged"
             self._unplug_check = 0.0
-            self._status("Dongle byl odpojen – zapojte ho znovu, měření se obnoví samo")
+            self._status(_("Dongle byl odpojen – zapojte ho znovu, měření se obnoví samo"))
         elif self.state == "unplugged" and time.monotonic() - self._unplug_check >= 4.0:
             self._unplug_check = time.monotonic()
             if usb_diag.dongle_present():
                 time.sleep(1.5)  # Windows potřebuje chvíli na načtení ovladače
-                self._status("Dongle je znovu zapojený, obnovuji měření…")
+                self._status(_("Dongle je znovu zapojený, obnovuji měření…"))
                 self._do_monitor(self._last_monitor or [])
 
     def _do_reset(self):
         resume = self._last_monitor if self.state in ("monitoring", "unplugged") else None
         self._teardown()
         self.state = "idle"
-        self._status("Resetuji dongle…")
+        self._status(_("Resetuji dongle…"))
         msg = usb_diag.usb_reset()
         time.sleep(2.0)
         self._status(msg)
@@ -213,8 +238,8 @@ class AntBackend:
             raise usb_diag.DongleMissing()
         last: Exception | None = None
         for attempt in range(1, attempts + 1):
-            self._status("Připojuji ANT+ dongle…" if attempt == 1 else
-                         f"Dongle nejde otevřít, zkouším znovu ({attempt}/{attempts})…")
+            self._status(_("Připojuji ANT+ dongle…") if attempt == 1 else
+                         _("Dongle nejde otevřít, zkouším znovu ({attempt}/{attempts})…").format(attempt=attempt, attempts=attempts))
             node = None
             try:
                 node = Node()
@@ -279,6 +304,9 @@ class AntBackend:
                 try:
                     handle(data)
                     self._gaps.after_page(mon, list(self._rx.values()))
+                    bev = self._batt.feed(mon.key, data)
+                    if bev is not None:
+                        self.events.put(bev)
                 except Exception:  # noqa: BLE001
                     log.exception("Chyba při zpracování zprávy %s", label)
                 try:
@@ -335,10 +363,17 @@ class AntBackend:
                 value = None
                 if dev_type == HR_TYPE:
                     value = data[7]
+                    dev.events = data[6]  # čítač tepů
                 elif dev_type == PM_TYPE and data[0] == 0x10:
                     value = data[6] | (data[7] << 8)
+                    dev.events, dev.cadence = data[1], (data[3] if data[3] != 0xFF else None)
                 elif dev_type == FE_TYPE and data[0] == 0x19:
                     value = data[5] | ((data[6] & 0x0F) << 8)
+                    dev.events, dev.cadence = data[1], (data[2] if data[2] != 0xFF else None)
+                # RSSI z ext. zprávy (LIB_CONFIG 0x40): příznak, ID kanálu, typ měření, RSSI
+                if len(data) >= 15 and data[8] & 0x40 and data[8] & 0x80:
+                    r = data[14]
+                    dev.rssi = r - 256 if r > 127 else r
                 now = time.monotonic()
                 if value is not None:
                     dev.last_value = value
@@ -354,10 +389,16 @@ class AntBackend:
         ch.on_acknowledge_data = on_data
         ch.set_id(0, 0, 0)
         ch.enable_extended_messages(1)
+        try:  # k ID kanálu i RSSI (pro chytré párování); starší dongle to ignorují
+            from openant.base.message import Message
+
+            node.ant.write_message(Message(Message.ID.LIB_CONFIG, [0x00, 0xC0]))
+        except Exception as e:  # noqa: BLE001
+            log.info("RSSI v ext. zprávách nejde zapnout: %r", e)
         ch.set_rf_freq(57)
         ch.open_rx_scan_mode()
         self.state = "scanning"
-        self._status(f"Vyhledávám senzory ({int(duration)} s)…")
+        self._status(_("Vyhledávám senzory ({v} s)…").format(v=int(duration)))
 
         end = time.monotonic() + duration
         next_cmd = None
@@ -374,7 +415,7 @@ class AntBackend:
         self.state = "idle"
         log.info("Sken %.0f s – zprávy podle zařízení (ID, typ): %s", duration,
                  ", ".join(f"#{i} typ {t}: {n}" for (i, t), n in sorted(counts.items())) or "žádné")
-        self._status(f"Vyhledávání dokončeno – nalezeno {len(seen)} senzorů")
+        self._status(_("Vyhledávání dokončeno – nalezeno {v} senzorů").format(v=len(seen)))
         self.events.put(("scan_done",))
         return next_cmd
 
@@ -386,7 +427,7 @@ class AntBackend:
         devices = [d for d in devices if d.device_type in SUPPORTED_TYPES][:MAX_CHANNELS]
         self._last_monitor = devices
         if not devices:
-            self._status("Nevybrán žádný senzor")
+            self._status(_("Nevybrán žádný senzor"))
             return
         node = self._open_node(attempts)
 
@@ -413,10 +454,13 @@ class AntBackend:
 
                 # výkon dekódujeme sami z každé stránky (viz rx.py), ne přes
                 # openant on_device_data, které chodí jen při změně čítače
-                def handle(data, mon=mon, key=key):
+                def handle(data, mon=mon, key=key, dt=d.device_type):
                     res = mon.on_page(data, time.monotonic())
                     if res is not None:
                         self.events.put(("value", key, "power", res[0], res[1]))
+                    spd = decode_speed(dt, data)  # FE-C 0x10: rychlost (vítr podle rychlosti)
+                    if spd is not None:
+                        self.events.put(("value", key, "speed", spd, None))
 
             self._hook_channel(dev, handle, mon)
             self._devices.append(dev)
@@ -424,18 +468,24 @@ class AntBackend:
         self._rx = rx
         self.state = "monitoring"
         names = ", ".join(f"{d.type_name} #{d.device_id}" for d in devices)
-        self._status(f"Měřím: {names}")
+        self._status(_("Měřím: {names}").format(names=names))
 
 
 class SimulatedBackend:
     """Falešný dongle pro vyzkoušení programu bez hardwaru."""
 
+    # vlastní kolo: pás 23456, powermetr 41001, trenažér 61234 (vysílá FE i PM se stejným ID);
+    # soused: pás 31337 (stále stejný tep) a powermetr 52777 (šlape celou dobu)
     SIM_DEVICES = [
         FoundDevice(23456, HR_TYPE, 1),
         FoundDevice(41001, PM_TYPE, 5),
         FoundDevice(31337, HR_TYPE, 1),
         FoundDevice(61234, FE_TYPE, 5),
+        FoundDevice(61234, PM_TYPE, 5),
+        FoundDevice(52777, PM_TYPE, 5),
     ]
+    SIM_NEIGHBOR = {31337, 52777}
+    SIM_REACT_S = 4.0  # po kolika s hledání „jezdec zašlape a navlhčí pás“
 
     def __init__(self, events: "queue.Queue"):
         self.events = events
@@ -454,23 +504,40 @@ class SimulatedBackend:
     def _alive(self, gen) -> bool:
         return self._gen == gen
 
+    @classmethod
+    def sim_scan_sample(cls, d: FoundDevice, el: float, ev: int) -> FoundDevice:
+        """Hodnota senzoru v čase el od začátku hledání (vlastní reagují po SIM_REACT_S)."""
+        mine = d.device_id not in cls.SIM_NEIGHBOR
+        active = not mine or el >= cls.SIM_REACT_S
+        if base_type(d.device_type) == HR_TYPE:
+            val = (95 + int(el)) if mine else 141 + random.randint(-1, 1)
+            if not active:
+                val = 0  # pás bez kontaktu
+            return FoundDevice(d.device_id, d.device_type, d.trans_type, val, time.monotonic(),
+                               events=ev & 0xFF, rssi=-48 if mine else -77)
+        val = 180 + random.randint(-20, 20) if active else 0
+        return FoundDevice(d.device_id, d.device_type, d.trans_type, val, time.monotonic(),
+                           cadence=(85 + random.randint(-3, 3)) if active else 0,
+                           events=(ev if active else 0) & 0xFF, rssi=-52 if mine else -74)
+
     def start_scan(self, duration: float) -> None:
         gen = self._new_gen()
         self.state = "scanning"
-        self._status(f"[SIMULACE] Vyhledávám senzory ({int(duration)} s)…")
+        self._status(_("[SIMULACE] Vyhledávám senzory ({v} s)…").format(v=int(duration)))
 
         def run():
             t0 = time.monotonic()
+            ev = 0
             while self._alive(gen) and time.monotonic() - t0 < duration:
                 el = time.monotonic() - t0
+                ev += 1
                 for i, d in enumerate(self.SIM_DEVICES):
-                    if el > 0.8 + i * 1.2:
-                        val = 130 + random.randint(-3, 3) if d.device_type == HR_TYPE else 180 + random.randint(-20, 20)
-                        self.events.put(("found", FoundDevice(d.device_id, d.device_type, d.trans_type, val, time.monotonic())))
-                time.sleep(0.7)
+                    if el > 0.3 + i * 0.3:
+                        self.events.put(("found", self.sim_scan_sample(d, el, ev)))
+                time.sleep(0.5)
             if self._alive(gen):
                 self.state = "idle"
-                self._status(f"[SIMULACE] Vyhledávání dokončeno – nalezeno {len(self.SIM_DEVICES)} senzorů")
+                self._status(_("[SIMULACE] Vyhledávání dokončeno – nalezeno {v} senzorů").format(v=len(self.SIM_DEVICES)))
                 self.events.put(("scan_done",))
 
         threading.Thread(target=run, daemon=True).start()
@@ -479,16 +546,19 @@ class SimulatedBackend:
         gen = self._new_gen()
         devices = list(devices)[:MAX_CHANNELS]
         self.state = "monitoring"
-        self._status("[SIMULACE] Měřím: " + ", ".join(f"{d.type_name} #{d.device_id}" for d in devices))
+        self._status(_("[SIMULACE] Měřím: ") + ", ".join(f"{d.type_name} #{d.device_id}" for d in devices))
         t_start = time.monotonic()
         self._rx = {d.key: RxMonitor(d.device_id, d.device_type, t_start) for d in devices}
         self._gaps = GapClassifier()
         rx = self._rx
+        batt = BatteryTracker()
 
         def run():
             t0 = time.monotonic()
+            last_batt = -1e9
             hr = 95.0
             ev = 0
+            speed = 0.0
             while self._alive(gen):
                 now = time.monotonic()
                 t = now - t0
@@ -500,10 +570,27 @@ class SimulatedBackend:
                     power = int(max(0, 200 + 110 * math.sin(t / 14) + random.gauss(0, 15)))
                     cad = 85 + random.randint(-4, 4)
                     ev = (ev + 1) & 0xFF  # při šlapání se čítač událostí posouvá
+                # rychlost na virtuální trase: kopce nahoru (pomalu) a dolů (rychle)
+                slope = 6 * math.sin(t / 45)  # sklon v %
+                target_v = 0.0 if power == 0 else max(8.0, 32 - 3.2 * slope + (power - 200) * 0.04)
+                speed += (target_v - speed) * (0.04 if target_v < speed else 0.08)
                 target_hr = 90 + power * 0.28
                 hr += (target_hr - hr) * 0.03
                 # simulace rádia: ~3 % ztracených zpráv a každých 75 s výpadek 4 s
                 radio_gap = 40 <= t % 75 < 44
+                # baterie: každé 4 s; trenažér po 15 s klesne na „slabá“
+                if now - last_batt >= 4.0:
+                    last_batt = now
+                    for i, d in enumerate(devices):
+                        if d.device_type == HR_TYPE:
+                            page = page_hr(85 - 30 * i, 2, 2.9, int(hr))
+                        elif d.device_type == FE_TYPE:
+                            page = page_common(4 if t >= 15 else 3, 3.4 if t >= 15 else 3.7)
+                        else:
+                            page = page_common(2, 3.0)
+                        bev = batt.feed(d.key, page)
+                        if bev is not None:
+                            self.events.put(bev)
                 for d in devices:
                     if random.random() < 0.03:
                         continue
@@ -522,6 +609,13 @@ class SimulatedBackend:
                     self._gaps.after_page(mon, list(rx.values()))
                     if res is not None:
                         self.events.put(("value", d.key, "power", res[0], res[1]))
+                    if d.device_type == FE_TYPE:
+                        mm = int(speed / 0.0036)
+                        fe = [0x10, 25, 0, 0, mm & 0xFF, mm >> 8, 0xFF, 0x24]
+                        mon.on_page(fe, now)
+                        spd = decode_speed(FE_TYPE, fe)
+                        if spd is not None:
+                            self.events.put(("value", d.key, "speed", spd, None))
                 time.sleep(0.25)
 
         threading.Thread(target=run, daemon=True).start()
@@ -538,10 +632,10 @@ class SimulatedBackend:
         self._new_gen()
         self.state = "idle"
         self._rx = {}
-        self._status("[SIMULACE] Zastaveno")
+        self._status(_("[SIMULACE] Zastaveno"))
 
     def reset(self) -> None:
-        self._status("[SIMULACE] Dongle resetován")
+        self._status(_("[SIMULACE] Dongle resetován"))
 
     def shutdown(self) -> None:
         self._new_gen()

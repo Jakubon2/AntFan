@@ -1,6 +1,8 @@
 # AntFan – ventilátor řízený výkonem a tepem (ANT+)
 
-Program pro Windows 11:
+[English](README.en.md)
+
+Program pro Windows 10/11 a macOS (Apple Silicon):
 
 1. připojí se k ANT+ USB donglu,
 2. vyhledá všechny tepové pásy, powermetry a chytré trenažéry (ANT+ FE-C) v okolí,
@@ -12,15 +14,15 @@ Program pro Windows 11:
 | Zařízení | Funguje | Nefunguje |
 |---|---|---|
 | **ANT+ dongle** | Garmin ANT+ USB stick (ANTUSB2, `0fcf:1008`), Garmin mini stick (ANTUSB-m, `0fcf:1009`) a většina levných klonů (CooSpo, CYCPLUS, Anself…), které se hlásí stejně | starý stick první generace (`0fcf:1004`), Bluetooth |
-| **Tepový pás** | jakýkoli s ANT+: Garmin HRM, Wahoo TICKR, Scosche Rhythm+, Garmin hodinky se zapnutým *vysíláním tepu* | jen Bluetooth: Polar H9, H10, Verity Sense |
-| **Powermetr** | jakýkoli ANT+: pedály (Garmin Rally, Favero Assioma), kliky (Stages, 4iiii, Quarq) | jen Bluetooth |
-| **Chytrý trenažér** | jakýkoli s ANT+ FE-C: Tacx, Wahoo KICKR, Elite, Zwift Hub… | trenažér jen s Bluetooth |
-| **Ventilátor** | Xiaomi Smart Standing Fan 2 Lite (`dmaker.fan.1c`), odzkoušený | starší Xiaomi se starým protokolem, ventilátory s plynulou rychlostí v %, jiné značky |
-| **Počítač** | Windows 10 a 11 | macOS a Linux zatím ne |
+| **Tepový pás** | jakýkoli s ANT+: Garmin HRM, Wahoo TICKR, Scosche Rhythm+, Garmin hodinky se zapnutým *vysíláním tepu*; přes Bluetooth i Polar H9, H10, Verity Sense (viz [Bluetooth senzory](#bluetooth-senzory)) | – |
+| **Powermetr** | jakýkoli ANT+: pedály (Garmin Rally, Favero Assioma), kliky (Stages, 4iiii, Quarq); přes Bluetooth každý se službou Cycling Power | – |
+| **Chytrý trenažér** | jakýkoli s ANT+ FE-C: Tacx, Wahoo KICKR, Elite, Zwift Hub…; přes Bluetooth každý s FTMS nebo Cycling Power | Bluetooth trenažér jen s vlastním protokolem (bez FTMS i Cycling Power) |
+| **Ventilátor** | Xiaomi Smart Standing Fan 2 Lite (`dmaker.fan.1c`, odzkoušený), další Xiaomi ventilátory podle specifikace, obyčejný ventilátor přes Shelly, cokoli přes Home Assistant | jiné značky bez Home Assistant |
+| **Počítač** | Windows 10 a 11, macOS 11+ na Macu s Apple Silicon (M1 a novější), viz [macOS](#macos) | Mac s procesorem Intel (sestavení je jen pro arm64), Linux zatím ne |
 
 Samostatné čidlo rychlosti a kadence AntFan nepoužívá, kadenci bere z powermetru nebo trenažéru.
 
-**Jiné Xiaomi ventilátory:** novější modely s protokolem MIoT a stupni rychlosti (1–5) by měly jít, ale nikdo je nezkoušel. V `%APPDATA%\AntFan\config.json` je potřeba v sekci `fan` upravit `max_level` a čísla vlastností (`power_siid/piid`, `level_siid/piid`, `buzzer_…`, `light_…`) podle specifikace modelu na <https://home.miot-spec.com>. Když to u vás funguje, napište model a hodnoty do Issues.
+**Ventilátory** podrobně viz [Připojení ventilátoru](#připojení-ventilátoru).
 
 ## Instalace
 
@@ -44,40 +46,61 @@ Dvojklik na **`AntFan.exe`**, nebo u verze ze zdrojového kódu na **`run.bat`**
 
 Exe si můžete sestavit i sami: spusťte **`build_exe.bat`**, výsledek najdete v `dist\AntFan.exe`.
 
-## Připojení ventilátoru (IP adresa a token)
+## macOS
 
-### Jak to funguje
-AntFan posílá příkazy ventilátoru **přímo v domácí síti** (UDP port 54321), bez cloudu Xiaomi. Komunikace je šifrovaná **tokenem**: tajným klíčem o 32 hex znacích, který ventilátor vytvoří při spárování s aplikací Xiaomi Home. Bez správného tokenu ventilátor příkazy ignoruje.
-Aplikace Xiaomi Home i dálkový ovladač fungují dál normálně vedle AntFan.
+Aplikace pro Mac s Apple Silicon (M1 a novější). Ovladač donglu se na Macu neinstaluje ani nemění, Zadig není potřeba.
 
-### Postup
-1. **Spárujte ventilátor** v aplikaci Xiaomi Home (Mi Home), pokud už není. Ventilátor umí jen Wi-Fi 2,4 GHz a PC musí být ve stejné síti. Síť pro hosty často zařízení navzájem izoluje.
-2. **Získejte token** nástrojem [Xiaomi Cloud Tokens Extractor](https://github.com/PiotrMachowski/Xiaomi-cloud-tokens-extractor):
-   - V sekci *Releases* stáhněte `token_extractor.exe` a spusťte ho.
-   - **Nejjednodušší je přihlášení QR kódem** (nabízí ho novější verze nástroje). Nástroj ukáže QR kód a ten naskenujete v aplikaci Xiaomi Home, ve které jste přihlášení. Heslo není potřeba.
-   - Druhá možnost je jméno a heslo k Xiaomi účtu. Účet se zadává jen do tohoto nástroje, AntFan ho nikdy nepotřebuje.
-   - Pokud se nástroj zeptá na oblast serveru, pro Evropu to bývá `de`. Když vypíše 0 zařízení, nechte oblast prázdnou a nástroj projde všechny.
-
-   **Když heslo nejde:**
-   - Pokud se do Xiaomi Home přihlašujete přes Google, Apple nebo Facebook, účet **nemá heslo**. Použijte QR kód, nebo si heslo nastavte na <https://account.xiaomi.com> (přihlaste se stejným způsobem → Zabezpečení → heslo).
-   - Jako jméno použijte e-mail, telefon s předvolbou (`+420…`) nebo číselné Xiaomi ID (v aplikaci Xiaomi Home → Profil).
-   - Heslo si ověřte přihlášením na <https://account.xiaomi.com>. Když nejde ani tam, použijte „Zapomenuté heslo“.
-   - Při chybě captcha nebo nekonečném ověření ve dvou krocích stáhněte nejnovější verzi nástroje, zkontrolujte spam (kód chodí e-mailem) a nezkoušejte to mnohokrát za sebou, protože Xiaomi pokusy denně omezuje. Pomůže i QR kód.
-
-   **Když extractor nefunguje vůbec, zkuste program `micloud`.** Jde o jinou implementaci téhož přihlášení a nainstalujete ho do Pythonu, který si vytvořil AntFan. Nejdřív aspoň jednou spusťte `run.bat`, pak v příkazovém řádku ve složce AntFan zadejte:
-   ```bat
-   .venv\Scripts\pip install micloud
-   .venv\Scripts\micloud get-devices -c de --pretty
+1. V sekci [Releases](../../releases) stáhněte **`AntFan-macOS.zip`** a rozbalte ho (dvojklik).
+2. **`AntFan.app`** přetáhněte do složky *Aplikace*.
+3. **První spuštění:** aplikace není podepsaná u Applu, takže ji macOS dvojklikem neotevře. Klikněte na ni **pravým tlačítkem → Otevřít** a v dialogu znovu *Otevřít*. Další spuštění už jde normálně.
+   Když macOS hlásí, že je aplikace „poškozená“ nebo ji nejde otevřít ani takhle, odstraňte příznak stažení v Terminálu:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/AntFan.app
    ```
-   - Program se zeptá na jméno (Username) a heslo (Password). Heslo se při psaní nezobrazuje.
-   - Vypíše zařízení. U ventilátoru (`"model": "dmaker.fan.1c"`) opište hodnoty `"localip"` a `"token"`.
-   - Když vypíše prázdný seznam `[]`, zkuste jinou oblast místo `de`: `i2`, `ru`, `sg`, `us` nebo `cn`.
-   - `micloud` neumí ověření ve dvou krocích. Když při správném hesle hlásí „Access denied“, Xiaomi pokus nejspíš zablokoval jako podezřelé přihlášení. Potvrďte ho v e-mailu nebo v aplikaci Xiaomi Home a zkuste to znovu.
-   - Nástroj vypíše všechna zařízení. U ventilátoru (model `dmaker.fan.1c`) si zkopírujte **IP** a **TOKEN**.
-3. **Nastavte pevnou IP:** v routeru ventilátoru zarezervujte IP adresu (DHCP rezervace podle MAC adresy). Jinak se adresa může po restartu routeru změnit.
-4. **V AntFan** vyplňte IP a token, klikněte na **Uložit a připojit** a pak na **Test**. Mělo by se zobrazit `OK: dmaker.fan.1c, …`.
+4. Zapojte ANT+ dongle (na USB-C přes redukci) a spusťte měření.
+
+Dongle může naráz používat jen jedna aplikace. Zwift, ROUVY, TrainerRoad, Garmin Express apod. musí dongle pustit, jinak AntFan hlásí, že je obsazený (a vypíše, který program běží). Garmin Express a Zwift Launcher běží na pozadí i po zavření okna, zkontrolujte ikonky v horní liště.
+
+Nastavení a log jsou v `~/Library/Application Support/AntFan/` (Nastavení → Diagnostika → *Otevřít složku s logem*).
+
+**Ze zdrojového kódu:** Python 3.10+ z <https://www.python.org/downloads/macos/> (obsahuje tkinter), pak v Terminálu ve složce projektu:
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/python -m antfan
+```
+
+## Připojení ventilátoru
+
+V **Nastavení → Ventilátor** vyberte typ:
+
+| Typ | Co ovládá | Stupně |
+|---|---|---|
+| **Xiaomi** | ventilátory Xiaomi / Mijia / Smartmi / dmaker v domácí Wi-Fi (bez cloudu) | stupně nebo rychlost v % podle modelu |
+| **Shelly zásuvka** | obyčejný ventilátor zapojený přes Shelly relé (Gen1 i Plus/Pro, bez hesla) | jen zapnout od zvoleného stupně |
+| **Home Assistant** | jakoukoli entitu `fan.*` (rychlost v %) nebo `switch.*` | podle entity |
+
+### Xiaomi
+AntFan posílá příkazy ventilátoru **přímo v domácí síti** (UDP port 54321). Komunikace je šifrovaná **tokenem**, tajným klíčem, který ventilátor vytvoří při spárování s aplikací Mi Home. Aplikace Mi Home i dálkový ovladač fungují dál normálně.
+
+1. **Spárujte ventilátor** v aplikaci Mi Home. Ventilátor umí jen Wi-Fi 2,4 GHz a PC musí být ve stejné síti (síť pro hosty zařízení často izoluje).
+2. **Klikněte na „Získat z účtu Xiaomi…“.** AntFan ukáže QR kód, ten naskenujete v aplikaci Mi Home a přihlášení potvrdíte v telefonu. Heslo se nikam nezadává. Pak vyberte ventilátor ze seznamu a AntFan vyplní IP adresu i token sám.
+   - Na stejném počítači můžete místo QR kódu kliknout na „Otevřít přihlášení v prohlížeči“.
+   - Seznam zařízení se stáhne jen jednou při tomto kroku. Ovládání pak jde bez cloudu.
+   - Když to nejde, token získáte i nástrojem [Xiaomi Cloud Tokens Extractor](https://github.com/PiotrMachowski/Xiaomi-cloud-tokens-extractor) (z jeho protokolu vychází i AntFan) a vyplníte ho ručně.
+3. **Nastavte pevnou IP:** v routeru ventilátoru zarezervujte IP adresu (DHCP rezervace podle MAC adresy).
+4. **Vyzkoušet.** AntFan zjistí model a sám vybere správné ovládání:
+   - **přímo podporované modely** (předvolby ze specifikací Xiaomi MIoT): `dmaker.fan.1c` (odzkoušený), `dmaker.fan.p5c/p8/p9/p10/p11/p15/p18/p28/p30/p33/p39/p42/p44/p45/p220/p221/p23/tn1/01/02/1e`, `xiaomi.fan.2lite/p23/p30/p43/p45/p51/p69/p70/p76/p85/p90`, `zhimi.fan.za5/fa1/fa2/fb1`, `leshow.fan.ss4/ss310/ss320`, `viomi.fan.v5–v8/v13`, `dreame.fan.*` a další,
+   - **starší modely se starým protokolem**: `zhimi.fan.v2/v3/sa1/za1/za3/za4`, `dmaker.fan.p5`,
+   - **ostatní modely**: AntFan si stáhne jejich specifikaci z <https://miot-spec.org> a uloží ji.
+   Kromě `dmaker.fan.1c` jsou modely ověřené jen podle specifikace, ne na skutečném ventilátoru. Když u vás funguje jiný model, napište to do Issues.
+5. **Počet stupňů** v AntFan (1–5) může být jiný než počet stupňů ventilátoru. AntFan je rozloží rovnoměrně: třeba 3 stupně AntFan na ventilátoru se 4 stupni = 1, 3, 4, a u rychlosti v % = 34 %, 67 %, 100 %.
 
 Token se změní, když ventilátor resetujete nebo znovu spárujete. Pak ho získejte znovu.
+
+### Shelly
+Zadejte IP adresu Shelly, výstup (u jednokanálových 0) a od jakého stupně se má zapnout. Rychlost nastavte na ventilátoru, AntFan ho jen zapíná a vypíná. Shelly musí mít vypnuté heslo (AntFan heslo zatím neumí).
+
+### Home Assistant
+Zadejte adresu (třeba `http://homeassistant.local:8123`), dlouhodobý token (profil v Home Assistant → Zabezpečení → Dlouhodobé přístupové tokeny) a entitu, třeba `fan.vetrak` nebo `switch.zasuvka_vetrak`. Entita `fan.*` dostane rychlost v %, `switch.*` se zapne od zvoleného stupně.
 
 ### Pípání a podsvícení
 Ventilátor jinak pípne při každém příkazu, proto ho AntFan při připojení ztiší (volba **Vypnout pípání**). Volitelně vypne i podsvícení. Nastavení se pošle při každém připojení a po výpadku ventilátoru. Když políčko odškrtnete, pípání nebo podsvícení se zase zapne.
@@ -96,6 +119,22 @@ Ventilátor jinak pípne při každém příkazu, proto ho AntFan při připojen
 
 ANT+ vysílá všem přijímačům najednou, takže senzory můžou zároveň vysílat do hodinek nebo cyklopočítače. Exkluzivní je jen dongle: v PC ho může používat jen jeden program.
 
+### Najít moje senzory (chytré párování)
+V bytovém domě je vidět víc pásů a powermetrů. **Nastavení → Senzory → Najít moje senzory** to rozhodne samo:
+1. Spustí hledání (20 s) a vyzve vás: zašlapejte a navlhčete pás nebo se ho dotkněte.
+2. Vaše senzory zareagují: výkon nebo kadence vyskočí z 0 a čítač otáček se hýbe, pás začne měřit nebo tep stoupne, Bluetooth senzor se probudí a objeví. Pomůže i síla signálu, vaše senzory bývají blíž.
+3. Senzory, které nereagují, patří nejspíš sousedům. AntFan navrhne pás a výkon (powermetr má přednost před trenažérem, trenažér se stejným ID jako Trenažér i Powermetr vezme jednou). **Použít** výběr uloží.
+
+Když nic nezareaguje, AntFan poradí, co zkusit. Senzory jde vždy vybrat i ručně kliknutím.
+
+### Průvodce souběhem s Rouvy
+Když běží Rouvy, Zwift, TrainerRoad, MyWhoosh a podobné (Windows i macOS), nebo když dongle drží jiný program, ukáže AntFan v okně jízdy nenápadný pruh s doporučením:
+- **Dva dongly:** každý program má svůj, v obou párujte přes ANT+.
+- **Dongle má Rouvy:** AntFan pojede přes Bluetooth. Tlačítko **Přepnout na Bluetooth senzory** vybere BT verze vašich senzorů (pozná je podle ID v názvu, třeba „Tacx Flux 61234“). V Rouvy pak párujte jen přes ANT+.
+- **Dongle má AntFan:** v Rouvy párujte senzory přes Bluetooth.
+
+Trenažér i pás obvykle dovolí jen 1–2 Bluetooth spojení naráz, proto stejný senzor nepřipojujte přes Bluetooth k oběma programům. Pruh se ukáže jednou za spuštění, jde zavřít. Podrobnosti a vypnutí: **Nastavení → Souběh**.
+
 ### Chytrý trenažér a souběh s Rouvy / Zwiftem
 - **Výkon z trenažéru:** AntFan přečte výkon a kadenci i z chytrého trenažéru (ANT+ FE-C, třeba Decathlon). Trenažér jen poslouchá, odpor dál řídí Rouvy nebo Zwift. Když vyberete powermetr i trenažér, má přednost powermetr.
 - **Souběh s Rouvy na jednom PC:** v Rouvy připojte trenažér a pás přes **Bluetooth**, AntFan pak dostane ANT+ dongle pro sebe. Většina trenažérů vysílá ANT+ i během připojení přes Bluetooth, u vašeho modelu to ověří testovací scénář. Druhá možnost je druhý ANT+ dongle jen pro AntFan.
@@ -109,7 +148,28 @@ ANT+ vysílá všem přijímačům najednou, takže senzory můžou zároveň vy
   - Za běhu neprochází USB zařízení.
   - Po ztrátě donglu nezatěžuje procesor.
   - Čtení z donglu má vysokou prioritu, takže se zprávy neztrácejí, ani když Rouvy vytěžuje počítač.
-- **Tepový pás Polar:** ANT+ umí Polar H9. Polar H10 vysílá jen Bluetooth, takže ho AntFan přes ANT+ neuvidí.
+- **Tepový pás Polar:** ANT+ umí Polar H9. Polar H10 a Verity Sense vysílají jen Bluetooth, AntFan je najde jako „Tepový pás (BT)“.
+
+## Bluetooth senzory
+AntFan umí kromě ANT+ i senzory s Bluetooth (BLE). Dongle pro ně není potřeba, stačí Bluetooth v počítači.
+
+| Senzor | Bluetooth služba | Co AntFan čte |
+|---|---|---|
+| Tepový pás (BT) | Heart Rate (0x180D) | tep |
+| Powermetr (BT) | Cycling Power (0x1818) | výkon, kadence z otáček klik (když je powermetr posílá) |
+| Trenažér (BT) | Fitness Machine / FTMS (0x1826) | výkon a kadence |
+
+- **Hledat senzory** hledá ANT+ i Bluetooth najednou. Bluetooth senzory mají v seznamu **(BT)**. Když dongle není zapojený, hledá se jen Bluetooth. V systému (Windows Nastavení → Bluetooth) senzory párovat nemusíte.
+- **Měření:** ANT+ senzory jdou přes dongle, BT senzory přes Bluetooth. Jdou kombinovat, třeba pás přes Bluetooth a powermetr přes ANT+. Chyba donglu Bluetooth nezastaví.
+- **Spojení na jednoho:** Bluetooth senzor často dovolí jen 1–2 spojení najednou. Když je pás nebo trenažér přes Bluetooth připojený k Rouvy, AntFan ho nemusí vůbec najít, nebo se o něj budou přetahovat. Umí-li senzor i ANT+, připojte ho jedním programem přes ANT+ a druhým přes Bluetooth.
+- **Ztráta spojení:** AntFan se k senzoru připojí znovu sám, stav je v Nastavení → Diagnostika.
+- **Příjem (%):** u Bluetooth je orientační. Senzory posílají různě často (tep asi 1× za s, výkon 1–4× za s), AntFan odhaduje očekávanou frekvenci z toho, co chodí.
+- **ID** u BT senzoru je číslo, které si AntFan odvodí z adresy zařízení. Adresy se pamatují v `ble_devices.json` vedle `config.json`.
+- **Windows:** Windows 10 (1809) nebo 11 a adaptér Bluetooth 4.0 nebo novější.
+- **macOS:** aplikace musí mít v `Info.plist` klíč `NSBluetoothAlwaysUsageDescription`, jinak ji macOS při prvním použití Bluetooth ukončí. AntFan to předem zkusí v samostatném procesu a místo pádu ukáže chybu. Při spuštění z Terminálu přes `python` tento klíč chybí, Bluetooth jde jen v sestavené AntFan.app. Přístup se povoluje v Nastavení systému → Soukromí a zabezpečení → Bluetooth.
+
+### Baterie senzorů
+Sloupec **Baterie** v Nastavení → Senzory ukazuje procenta (tepový pás, pokud je posílá) nebo stav nová / dobrá / OK / slabá / kritická. Slabá baterie je červeně a v okně jízdy u příjmu senzoru je „· slabá baterie“. Když baterie klesne pod hranici, ukáže se v okně jízdy jednou za spuštění pruh s upozorněním. Zapnutí a hranice (slabá / kritická, u senzorů s procenty pod 20 %) jsou v Nastavení → Senzory. Senzory posílají stav baterie zhruba jednou za minutu, údaj se proto objeví až chvíli po spuštění měření.
 
 ## Řízení ventilátoru
 Přepínač dole v okně: **Auto** řídí ventilátor podle pravidel, **Vyp/1/2/3** nastaví stupeň ručně. Všechno ostatní je v okně **Nastavení** a ukládá se hned. Tmavý motiv: **Nastavení → Vzhled** (Světlý / Tmavý / Podle systému).
@@ -129,7 +189,17 @@ Když jeden zdroj chybí (například nemáte powermetr), použije se automatick
 - **Hystereze**: stupeň se sníží, až když průměr klesne pod práh mínus tuto hodnotu (W, bpm).
 - **Vyhlazení**: průměr za posledních N sekund. Výkon na kole hodně kolísá.
 
+### Plynulá rychlost (Nastavení → Řízení → Výstup)
+Místo stupňů roste rychlost lineárně: na 1. prahu **min. %** (výchozí 20 %), na posledním prahu 100 %, pod 1. prahem vypnuto. Platí pro všechny režimy (Chytře, Jen výkon…). Hystereze a prodleva zůstávají, rychlost pak klesá nejvýš o **Pokles nejvýš** %/s (výchozí 2 %/s). Dofukování i předstih fungují dál.
+
+### Vítr podle rychlosti
+Režim **Vítr podle rychlosti** foukne tak, jak rychle jedete. Rychlost posílá trenažér (FE-C, stránka 0x10), Rouvy ji tam promítá z virtuální trasy. Pod 5 km/h je vypnuto, pak rychlost ventilátoru roste lineárně do 100 % při **plné rychlosti** (výchozí 45 km/h). Volba **minimum podle výkonu a tepu** zabrání přehřátí při pomalém stoupání do kopce: platí vyšší z větru a chlazení podle výkonu.
+
+Ventilátor s rychlostí v % (Xiaomi s plynulou rychlostí, Home Assistant `fan.*`) dostane % přímo, ostatní nejbližší stupeň. Změny pod 5 % se neposílají. V okně jízdy je ventilátor v % (u stupňových ventilátorů i se stupněm), v dlaždici je vidět například „vítr 32 km/h“.
+
 ### Nastavení → Chování
+**Předstih** (výchozí vypnutý): když okamžitý výkon drží nad prahem vyššího stupně zadaný počet sekund (výchozí 3 s), stupeň naskočí hned, nečeká se na průměr. Krátký výkyv pod tu dobu nic nezmění a snižování zůstává pomalé.
+
 - **Prodleva před snížením**: jak dlouho musí být hodnota nízko, než se stupeň sníží. Zvýšení je vždy okamžité.
 - **Dofukování po tréninku**: po skončení šlapání ventilátor ještě N minut fouká na zvoleném stupni (výchozí 3 min na stupni 1) a pak se vypne. Hodnota 0 dofukování vypne.
 - **Bez dat → stupeň**: co udělat, když po zadanou dobu nepřijdou žádná data (výchozí: vypnout). Dofukování má přednost.
@@ -141,6 +211,51 @@ Každých 15 s program kontroluje skutečný stav ventilátoru. Když stupeň zm
 Zaškrtnutím **Simulace (bez hardwaru)** program vygeneruje falešné senzory a ventilátor. Hodí se k vyzkoušení pravidel.
 
 Postup testování všech funkcí je v souboru [TESTOVANI.md](TESTOVANI.md).
+
+## Ovládání z mobilu
+Hodnoty (výkon, tep, stupeň) a přepínač **Auto | Vyp | 1–3** lze mít i na telefonu na řídítkách. Telefon musí být ve stejné Wi-Fi jako počítač, nic se neinstaluje.
+
+1. V hlavním okně klikněte na **Zapnout mobil** (výchozí je vypnuto). Poprvé se otevře Nastavení → Mobil s QR kódem. Po zavření programu se ovládání z mobilu zase vypne. Kdo ho chce mít pořád, zaškrtne v Nastavení → Mobil **Zapnout hned po spuštění programu**.
+2. Načtěte v telefonu QR kód, nebo otevřete adresu ve tvaru `http://<IP počítače>:8686/m/<klíč>`.
+3. Windows se napoprvé zeptá, zda AntFan smí do sítě. Povolte **soukromé sítě**, jinak se telefon nepřipojí.
+
+- Adresa obsahuje náhodný klíč. Bez něj server odpoví 404. Kdo adresu zná, může ventilátor ovládat. Tlačítko **Nový klíč** starou adresu zneplatní.
+- Port (výchozí 8686) jde změnit, když je obsazený.
+- Stránka se obnovuje každou sekundu a řídí se tmavým režimem telefonu. Obrazovku telefonu nechte rozsvícenou.
+- Pro vlastní skripty: `GET /m/<klíč>/api/state` vrací JSON, `POST /m/<klíč>/api/level` s tělem `{"level": "auto"}` nebo `{"level": 2}` přepne stupeň.
+
+## Připomínka pití
+Volitelná, **výchozí je vypnuto**. Zapíná se v Nastavení → Pití. Během jízdy se pod grafem občas objeví tenký pruh „Napijte se · zhruba 150 ml“. Zmizí kliknutím nebo po minutě. Na mobilu se ukáže stejný pruh.
+
+- Počítá jen během měření a když šlapete (výkon nebo kadence nad 0, bez powermetru podle tepu).
+- Základ: každých 15 min, zhruba 500 ml za hodinu. Při vyšším výkonu (kJ za hodinu) až 750 ml/h a interval až 10 min. Nad 22 °C v místnosti víc a častěji. Po hodině jízdy je interval o 10 % kratší.
+- **Teplota v místnosti** (výchozí 20 °C): prázdné pole = teplotu nepočítat. **Interval** v minutách: prázdné = automaticky.
+- Hodnoty jsou jen orientační, nejde o zdravotní doporučení.
+
+## Lišta navrchu
+Malý tmavý proužek, který zůstává nad Rouvy a jinými aplikacemi. **Výchozí je vypnuto.** Zapíná se přepínačem „Lišta“ v horní liště okna jízdy nebo v Nastavení → Vzhled.
+
+- Ukazuje jen to, co Rouvy neví: stupeň ventilátoru a za ním důvod („2 · výkon“, „1 · dofukování 1:40“, „ručně 2“). Volitelně druhé číslo: % max. tepu (výchozí), tepová zóna nebo nic.
+- Upozornění jen když jsou: připomínka pití, slabá baterie senzoru, výpadek příjmu, ventilátor neodpovídá.
+- Kliknutím na stupeň přepnete Auto → 1 → 2 → … → Vyp. Přetažením myší lištu posunete, pozice se uloží. Tlačítko „Vrátit lištu do rohu“ ji vrátí doprava nahoru.
+- Velikost Mini nebo Standard. Režim **Jen upozornění**: lišta je skrytá a ukáže se na 20 s, když přijde upozornění.
+- **Rouvy musí běžet v okně bez rámečku** (borderless / okno na celou obrazovku), ne v exkluzivní celé obrazovce. Přes exkluzivní režim se žádné okno nedostane.
+- macOS: lišta je nad ostatními okny, ale ne nad aplikací v celoobrazovkovém prostoru (zelené tlačítko). Rouvy tam pusťte v maximalizovaném okně.
+## Profily
+Každý profil má vlastní řízení: FTP, max. tep, prahy, režim řízení a chování. Hodí se pro víc jezdců na jednom trenažéru nebo pro různé tréninky (například Vytrvalost a Intervaly).
+
+- **Přepnutí:** kliknutím na „Profil: …“ v horní liště okna jízdy, nebo v **Nastavení → Řízení** nahoře. Přepnout jde i za jízdy, nové prahy platí hned.
+- **Nový** zkopíruje aktuální profil, **Přejmenovat** změní jméno, **Smazat** smaže aktuální profil (poslední smazat nejde).
+- Nastavení ze starší verze se při prvním spuštění převede na profil **Výchozí**.
+
+## Shrnutí po jízdě
+Během měření program 1× za sekundu zaznamenává výkon (okamžitý i vyhlazený), kadenci, tep a stupeň ventilátoru. Po **Zastavit**, nebo když po skončení šlapání doběhne dofukování, ukáže okno **Shrnutí jízdy**. Jen když jízda trvala aspoň 5 minut a byl výkon nebo tep.
+
+- **Čísla:** délka, průměrný a max. výkon, NP (normalizovaný výkon), IF a TSS podle FTP profilu, práce v kJ, průměrný a max. tep, průměrná kadence.
+- **Čas v zónách:** výkon v 7 zónách podle FTP (Coggan), tep v 5 zónách podle % max. tepu, čas na jednotlivých stupních ventilátoru.
+- **Posun tepu:** o kolik % se ve druhé polovině jízdy zhoršil poměr výkon/tep proti první. Pod 5 % je dobré. Vyšší hodnota znamená, že tep při stejném výkonu stoupal (únava, teplo, málo pití).
+- **Soubory:** každá jízda se uloží jako CSV do `%APPDATA%\AntFan\jizdy\RRRR-MM-DD_HHMM.csv` (oddělovač středník, otevře se v Excelu). Konec po dofukování, kdy se už nešlapalo, se odřízne. Rozjetá jízda se uloží i při zavření programu.
+- **Starší jízdy:** **Nastavení → Jízdy** ukáže seznam posledních jízd. Dvojklikem otevřete jejich shrnutí.
 
 ## Řešení problémů
 
@@ -154,7 +269,7 @@ Program na to pamatuje několika způsoby:
 - **Nastavení → Diagnostika → Resetovat dongle:** uvolní dongle a provede USB reset, stejně jako by se vytáhl a zapojil.
 - **Vytažení za běhu:** měření se po zapojení obnoví samo.
 
-Když nic z toho nepomůže, zapojte dongle do jiného USB portu (ne do hubu) a ve Správci zařízení zkontrolujte, že má ovladač libusbK.
+Když nic z toho nepomůže, zapojte dongle do jiného USB portu (ne do hubu) a na Windows ve Správci zařízení zkontrolujte, že má ovladač libusbK.
 
 ### Výkon občas na chvíli spadne na 0 W
 **Hlavní příčina nalezena a opravena:** knihovna openant otevírala kanály v režimu „background scanning“. Kanál se v něm na senzor nezachytí a zprávy chytá jen náhodou. Podle logu dorazilo při měření jen 7–11 % zpráv, zatímco při hledání senzorů ~90 %. AntFan teď otevírá normální sledovací kanály a příjem by měl být 90–100 %.
@@ -178,11 +293,28 @@ Ve sloupci **Příjem** je vidět, kolik % zpráv od senzoru za posledních 5 s 
 ## Struktura
 ```
 antfan/ant_backend.py   ANT+ vyhledávání (continuous scan) a měření tepu, powermetru a trenažéru (openant)
+antfan/ble_backend.py   Bluetooth senzory (bleak) a kombinovaný backend ANT+ a Bluetooth
+antfan/pairing.py       chytré párování: které senzory zareagovaly (bez GUI)
+antfan/coexist.py       průvodce souběhem s Rouvy/Zwiftem: detekce aplikací a doporučení
+antfan/pairing_ui.py    GUI párování a průvodce (mixin pro App)
 antfan/selftest.py      kontrola sestaveného exe (--selftest)
 antfan/rx.py            příjem ze senzoru: dekódování výkonu, kvalita signálu, diagnostika do logu
+antfan/battery.py       stav baterie (stránka 0x52, u tepového pásu stránka 7)
+antfan/battery_ui.py    baterie v GUI: sloupec, upozornění v okně jízdy, volby
 antfan/usb_diag.py      diagnostika obsazeného donglu, USB reset, oprava úniku v openant
 antfan/single_instance.py  jen jedna spuštěná instance
 antfan/miio_fan.py      protokol miIO pro Xiaomi ventilátor (bez python-miio)
 antfan/controller.py    výpočet stupně: chytrý režim, % FTP, vyhlazení, hystereze, dofukování
+antfan/vitr.py          plynulá rychlost a vítr podle rychlosti: mapování na %, pomalé snižování
+antfan/vitr_ui.py       nastavení a dlaždice ventilátoru pro výstup v %
+antfan/web.py           ovládání z mobilu: HTTP server a stránka pro telefon
+antfan/drink.py         připomínka pití: interval a množství podle délky jízdy, výkonu a teploty
+antfan/overlay.py       lišta navrchu přes Rouvy: stav z aplikace, okno bez rámečku, volby
+antfan/qr.py            QR kód s adresou pro mobil (bez knihoven)
+antfan/profiles.py      profily jezdců (každý má vlastní řízení)
+antfan/ride.py          záznam jízdy, NP/IF/TSS, zóny, posun tepu, CSV
+antfan/ride_ui.py       okno Shrnutí jízdy a stránka Jízdy
+tests/                  unit testy: python -m unittest discover tests
 antfan/app.py           GUI (tkinter)
+tests/                  testy (python -m unittest discover tests)
 ```
