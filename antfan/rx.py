@@ -49,6 +49,21 @@ def decode_power(device_type: int, data) -> tuple[int, int, int | None] | None:
     return ev, inst, (None if cad == 0xFF else cad)
 
 
+def decode_speed(device_type: int, data) -> float | None:
+    """Rychlost v km/h z FE-C stránky 0x10 (General FE Data, byty 4–5 = 0,001 m/s), jinak None.
+
+    Rouvy a podobné aplikace sem promítají rychlost z virtuální trasy.
+    Rychlost z BLE FTMS (Indoor Bike Data) se posílá stejně jako ("value", key, "speed", km/h).
+    """
+    if device_type != FE_TYPE or data[0] != 0x10:
+        return None
+    raw = data[4] | (data[5] << 8)
+    if raw == 0xFFFF:
+        return None
+    kmh = raw * 0.0036
+    return kmh if kmh <= 150 else None
+
+
 class RxMonitor:
     """Sleduje jeden otevřený kanál. on_page() se volá z vlákna openant."""
 

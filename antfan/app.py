@@ -27,8 +27,10 @@ from . import config as config_mod
 from . import usb_diag
 from .ant_backend import FE_TYPE, HR_TYPE, MAX_CHANNELS, PM_TYPE, AntBackend, FoundDevice, SimulatedBackend
 from .controller import Controller
+from .fans import FanError, HomeAssistantFan, ShellyFan
 from .miio_fan import FanWorker, MiioError, SimulatedFan, XiaomiFan
 from .single_instance import SingleInstance
+from . import vitr_ui
 
 log = logging.getLogger("antfan")
 
@@ -42,6 +44,7 @@ DARK = dict(BG="#1c1d20", SURFACE="#26272b", BORDER="#3a3b40", TEXT="#ecebe7", M
             FAINT="#6f6e69", POWER="#EE7A50", HR="#E8739B", FAN="#5E9FE3", FAN_BAND="#1e3048",
             ACCENT="#5E9FE3", ACCENT_BG="#1e3048", OK="#5cb860", BAD="#e8695a")
 BG = SURFACE = BORDER = TEXT = MUTED = FAINT = POWER = HR = FAN = FAN_BAND = ACCENT = ACCENT_BG = OK = BAD = ""
+FAN_KINDS = {"xiaomi": "Xiaomi", "shelly": "Shelly zásuvka", "homeassistant": "Home Assistant"}
 THEMES = [("light", "Světlý"), ("dark", "Tmavý"), ("system", "Podle systému")]
 
 
@@ -88,6 +91,7 @@ MODE_CARDS = [
     ("power", "Jen výkon", "Reaguje hned"),
     ("hr", "Jen tep", "Bez powermetru"),
     ("max", "Vyšší z obou", "Fouká víc"),
+    ("wind", "Vítr podle rychlosti", "Rychlost jízdy z trenažéru"),
 ]
 
 
@@ -300,7 +304,7 @@ class App:
         _set_palette(dark)
         self._setup_style()
         self.root.configure(bg=BG)
-        self._last_bars = None
+        self._last_bars = self._last_pct_bar = None
         self._build_ride()
         self._build_settings()
         self.root.geometry(geo)
@@ -348,7 +352,7 @@ class App:
         self.canvas.bind("<Configure>", lambda e: self._draw_chart())
         legend = tk.Frame(r, bg=BG)
         legend.pack(fill="x", padx=16, pady=(0, 8))
-        for text, col in (("výkon, W", POWER), ("tep, bpm (60–200)", HR), ("stupeň ventilátoru", FAN)):
+        for text, col in (("výkon, W", POWER), ("tep, bpm (60–200)", HR), ("ventilátor", FAN)):
             self._lbl(legend, text, fg=col).pack(side="left", padx=(0, 14))
         self._lbl(legend, "posledních 10 min", fg=FAINT).pack(side="right")
         _hline(r)
@@ -490,36 +494,112 @@ class App:
 
     # --- Ventilátor
     def _page_fan(self, p):
-        self._page_head(p, "Ventilátor", "Xiaomi Smart Fan 2 Lite v lokální Wi-Fi. IP adresu a token "
-                                         "získáte podle README.")
-        g = tk.Frame(p, bg=BG)
-        g.pack(fill="x")
-        g.columnconfigure(1, weight=1)
-        ttk.Label(g, text="IP adresa").grid(row=0, column=0, sticky="w", pady=3)
-        self.e_ip = ttk.Entry(g, width=24)
-        self.e_ip.insert(0, self.cfg.fan.ip)
-        self.e_ip.grid(row=0, column=1, sticky="w", pady=3, padx=(10, 0))
-        ttk.Label(g, text="Token").grid(row=1, column=0, sticky="w", pady=3)
-        self.e_token = ttk.Entry(g, show="•", width=40)
-        self.e_token.insert(0, self.cfg.fan.token)
-        self.e_token.grid(row=1, column=1, sticky="w", pady=3, padx=(10, 0))
-        ttk.Label(g, text="Počet stupňů").grid(row=2, column=0, sticky="w", pady=3)
-        self.sp_levels = ttk.Spinbox(g, from_=1, to=5, width=5)
-        self.sp_levels.set(self.cfg.fan.max_level)
-        self.sp_levels.grid(row=2, column=1, sticky="w", pady=3, padx=(10, 0))
-        self.mute_var = tk.BooleanVar(value=self.cfg.fan.mute_buzzer)
-        self.light_var = tk.BooleanVar(value=self.cfg.fan.light_off)
-        ttk.Checkbutton(p, text="Vypnout pípání", variable=self.mute_var,
-                        command=self.on_fan_save).pack(anchor="w", pady=(10, 0))
-        ttk.Checkbutton(p, text="Vypnout podsvícení", variable=self.light_var,
+        f = self.cfg.fan
+        self._page_head(p, "Ventilátor", "Co AntFan ovládá. Údaje zůstávají jen v tomto počítači.")
+        self.fan_kind = tk.StringVar(value=f.kind if f.kind in FAN_KINDS else "xiaomi")
+        kinds = tk.Frame(p, bg=BG)
+        kinds.pack(fill="x", pady=(0, 10))
+        for key, text in FAN_KINDS.items():
+            ttk.Radiobutton(kinds, text=text, variable=self.fan_kind, value=key,
+                            command=self._show_fan_kind).pack(side="left", padx=(0, 14))
+        host = tk.Frame(p, bg=BG)
+        host.pack(fill="x")
+        wl = int(440 * self.px)
+
+        def grid(parent):
+            g = tk.Frame(parent, bg=BG)
+            g.pack(fill="x")
+            return g
+
+        def row(g, r, label, widget):
+            ttk.Label(g, text=label).grid(row=r, column=0, sticky="w", pady=3)
+            widget.grid(row=r, column=1, sticky="w", pady=3, padx=(10, 0))
+            return widget
+
+        def entry(g, value, width=24, show=None):
+            e = ttk.Entry(g, width=width, show=show) if show else ttk.Entry(g, width=width)
+            e.insert(0, value)
+            return e
+
+        # Xiaomi
+        fx = tk.Frame(host, bg=BG)
+        g = grid(fx)
+        self.e_ip = row(g, 0, "IP adresa", entry(g, f.ip))
+        self.e_token = row(g, 1, "Token", entry(g, f.token, 40, "•"))
+        ttk.Button(fx, text="Získat z účtu Xiaomi…", command=self.on_xiaomi_login).pack(anchor="w", pady=(4, 0))
+        self._lbl(fx, "Přihlásíte se QR kódem v aplikaci Mi Home, heslo se nikam nezadává.",
+                  anchor="w").pack(fill="x", pady=(2, 6))
+        self.lbl_fan_model = self._lbl(fx, f"Model: {f.model}" if f.model else
+                                       "Model se zjistí při připojení.", anchor="w")
+        self.lbl_fan_model.pack(fill="x")
+        self.mute_var = tk.BooleanVar(value=f.mute_buzzer)
+        self.light_var = tk.BooleanVar(value=f.light_off)
+        ttk.Checkbutton(fx, text="Vypnout pípání", variable=self.mute_var,
+                        command=self.on_fan_save).pack(anchor="w", pady=(8, 0))
+        ttk.Checkbutton(fx, text="Vypnout podsvícení", variable=self.light_var,
                         command=self.on_fan_save).pack(anchor="w")
+        # Shelly
+        fs = tk.Frame(host, bg=BG)
+        g = grid(fs)
+        self.e_shelly = row(g, 0, "IP adresa Shelly", entry(g, f.shelly_host))
+        self.sp_shelly_ch = ttk.Spinbox(g, from_=0, to=3, width=5)
+        self.sp_shelly_ch.set(f.shelly_channel)
+        row(g, 1, "Výstup (kanál)", self.sp_shelly_ch)
+        self.sp_on_level_s = ttk.Spinbox(g, from_=1, to=5, width=5)
+        self.sp_on_level_s.set(f.on_level)
+        row(g, 2, "Zapnout od stupně", self.sp_on_level_s)
+        self._lbl(fs, "Obyčejný ventilátor v zásuvce Shelly umí jen zapnout a vypnout. Rychlost nastavte "
+                      "na ventilátoru. Shelly musí být bez hesla.", anchor="w", justify="left",
+                  wraplength=wl).pack(fill="x", pady=(6, 0))
+        # Home Assistant
+        fh = tk.Frame(host, bg=BG)
+        g = grid(fh)
+        self.e_ha_url = row(g, 0, "Adresa", entry(g, f.ha_url or "http://homeassistant.local:8123", 32))
+        self.e_ha_token = row(g, 1, "Token", entry(g, f.ha_token, 40, "•"))
+        self.e_ha_entity = row(g, 2, "Entita", entry(g, f.ha_entity))
+        self.sp_on_level_h = ttk.Spinbox(g, from_=1, to=5, width=5)
+        self.sp_on_level_h.set(f.on_level)
+        row(g, 3, "Zapnout od stupně", self.sp_on_level_h)
+        self._lbl(fh, "Token: v Home Assistant profil → Zabezpečení → Dlouhodobé přístupové tokeny. "
+                      "Entita fan.* dostane rychlost v %, switch.* jen zapnout/vypnout od zadaného stupně.",
+                  anchor="w", justify="left", wraplength=wl).pack(fill="x", pady=(6, 0))
+        self.fan_frames = {"xiaomi": fx, "shelly": fs, "homeassistant": fh}
+
+        common = tk.Frame(p, bg=BG)
+        common.pack(fill="x", pady=(12, 0))
+        ttk.Label(common, text="Počet stupňů").pack(side="left")
+        self.sp_levels = ttk.Spinbox(common, from_=1, to=5, width=5)
+        self.sp_levels.set(f.max_level)
+        self.sp_levels.pack(side="left", padx=(10, 0))
         bf = tk.Frame(p, bg=BG)
         bf.pack(fill="x", pady=(12, 0))
         ttk.Button(bf, text="Uložit a připojit", command=self.on_fan_save).pack(side="left")
         ttk.Button(bf, text="Vyzkoušet", command=self.on_fan_test).pack(side="left", padx=8)
         self.lbl_fan_status = self._lbl(p, "", font=self.fonts.body, anchor="w", justify="left",
-                                        wraplength=int(440 * self.px))
+                                        wraplength=wl)
         self.lbl_fan_status.pack(fill="x", pady=(10, 0))
+        self._show_fan_kind()
+
+    def _show_fan_kind(self):
+        for k, fr in self.fan_frames.items():
+            fr.pack_forget()
+        self.fan_frames[self.fan_kind.get()].pack(fill="x")
+
+    def on_xiaomi_login(self):
+        from .xiaomi_ui import XiaomiLoginDialog
+
+        XiaomiLoginDialog(self)
+
+    def use_xiaomi_device(self, ip: str, token: str, model: str):
+        """Zavolá dialog účtu Xiaomi po výběru zařízení."""
+        self.fan_kind.set("xiaomi")
+        self._show_fan_kind()
+        for e, v in ((self.e_ip, ip), (self.e_token, token)):
+            e.delete(0, "end")
+            e.insert(0, v)
+        self.on_fan_save()
+        if model:
+            self.lbl_fan_model.configure(text=f"Model: {model}")
 
     # --- Řízení
     def _page_control(self, p):
@@ -590,6 +670,7 @@ class App:
             self.lbl_hunits.append(uh)
         self._thr_shown = c.threshold_mode
         self._fill_thr_entries()
+        vitr_ui.build_control_section(self, p)
         self.lbl_ctrl_err = self._lbl(p, "", fg=BAD, font=self.fonts.body, anchor="w")
         self.lbl_ctrl_err.pack(fill="x", pady=(8, 0))
         self._lbl(p, "Změny se ukládají hned. Hystereze, vyhlazení a dofukování jsou v Chování.",
@@ -767,8 +848,9 @@ class App:
             c.cooldown_level = max(0, min(n, int(self.e_cool_lvl.get())))
             c.no_data_level = max(0, min(n, int(self.e_nodata_lvl.get())))
             c.no_data_s = max(5.0, float(self.e_nodata_s.get().replace(",", ".")))
+            vitr_ui.read_control_section(self, c)
         except ValueError as e:
-            msg = str(e) if "Prahy" in str(e) or "nejvýš" in str(e) else "Zadejte čísla."
+            msg = str(e) if "Prahy" in str(e) or "nejvýš" in str(e) or "km/h" in str(e) else "Zadejte čísla."
             self.lbl_ctrl_err.configure(text=f"Neuloženo: {msg}")
             self.lbl_beh_err.configure(text=f"Neuloženo: {msg}")
             return False
@@ -788,25 +870,35 @@ class App:
                 log.exception("shutdown")
         self.backend = SimulatedBackend(self.events) if self.sim_var.get() else AntBackend(self.events)
 
+    def _fan_driver(self, f):
+        """Vytvoří ovladač podle typu; vyhodí výjimku s hláškou pro uživatele."""
+        if f.kind == "shelly":
+            return ShellyFan(f)
+        if f.kind == "homeassistant":
+            return HomeAssistantFan(f)
+        if not (f.ip and f.token):
+            raise FanError("Zadejte IP adresu a token ventilátoru, nebo je získejte z účtu Xiaomi.")
+        return XiaomiFan(f)
+
     def _make_fan(self):
         f = self.cfg.fan
         if self.sim_var.get():
             self.fan_worker.configure(SimulatedFan(f))
             self._set_fan_status("simulovaný ventilátor", True)
-        elif f.ip and f.token:
-            try:
-                self.fan_worker.configure(XiaomiFan(f))
-                self._set_fan_status("připojuji…", True)
-            except MiioError as e:
-                self.fan_worker.configure(None)
-                self._set_fan_status(str(e), False)
-        else:
+            return
+        try:
+            self.fan_worker.configure(self._fan_driver(f))
+            self._set_fan_status("připojuji…", True)
+        except (MiioError, FanError, ValueError) as e:
             self.fan_worker.configure(None)
-            self._set_fan_status("Zadejte IP adresu a token ventilátoru.", False)
+            self._set_fan_status(str(e), False)
 
     def _set_fan_status(self, text, ok):
         self.fan_status_text, self.fan_ok = text, ok
         self.lbl_fan_status.configure(text=text, fg=OK if ok else BAD)
+        m = self.cfg.fan.model
+        if m and self.cfg.fan.kind == "xiaomi":
+            self.lbl_fan_model.configure(text=f"Model: {m}")
 
     # ============================================================ akce
     def on_run_toggle(self):
@@ -878,14 +970,27 @@ class App:
 
     def on_fan_save(self):
         f = self.cfg.fan
-        f.ip = self.e_ip.get().strip()
-        f.token = self.e_token.get().strip()
-        try:
-            levels = max(1, min(5, int(self.sp_levels.get())))
-        except ValueError:
-            levels = 3
+
+        def num(w, lo, hi, default):
+            try:
+                return max(lo, min(hi, int(w.get())))
+            except ValueError:
+                return default
+
+        f.kind = self.fan_kind.get()
+        ip, token = self.e_ip.get().strip(), self.e_token.get().strip()
+        if (ip, token) != (f.ip, f.token):
+            f.model = ""
+        f.ip, f.token = ip, token
         f.mute_buzzer = self.mute_var.get()
         f.light_off = self.light_var.get()
+        f.shelly_host = self.e_shelly.get().strip()
+        f.shelly_channel = num(self.sp_shelly_ch, 0, 3, 0)
+        f.ha_url = self.e_ha_url.get().strip()
+        f.ha_token = self.e_ha_token.get().strip()
+        f.ha_entity = self.e_ha_entity.get().strip()
+        f.on_level = num(self.sp_on_level_s if f.kind == "shelly" else self.sp_on_level_h, 1, 5, 1)
+        levels = num(self.sp_levels, 1, 5, 3)
         restart_needed = levels != f.max_level
         f.max_level = levels
         config_mod.save(self.cfg)
@@ -902,11 +1007,16 @@ class App:
 
         def run():
             try:
-                fan = XiaomiFan(f)
+                fan = self._fan_driver(f)
                 info = fan.info()
                 power, level = fan.get_state()
+                note = getattr(fan, "note", None)
                 msg = (f"Ventilátor odpovídá: {info.get('model', '?')} (firmware {info.get('fw_ver', '?')}), "
-                       f"{'zapnutý' if power else 'vypnutý'}, stupeň {level}.")
+                       f"{'zapnutý' if power else 'vypnutý'}, stupeň {level if power else 0}."
+                       + (f" Ovládání: {note}." if note else ""))
+                if f.kind == "xiaomi" and info.get("model"):
+                    f.model = str(info["model"])
+                    config_mod.save(self.cfg)
                 self.events.put(("fan", True, msg, level if power else 0))
             except Exception as e:  # noqa: BLE001
                 self.events.put(("fan", False, str(e), None))
@@ -954,6 +1064,9 @@ class App:
                 elif kind == "value":
                     _, key, vkind, value, cad = ev
                     now = time.monotonic()
+                    if vkind == "speed":  # rychlost jízdy (vítr), ne do seznamu senzorů
+                        self.controller.feed(vkind, value)
+                        continue
                     self.dev_values[key] = (now, value)
                     if key[1] == PM_TYPE:
                         self._last_pm_value = now
@@ -1071,6 +1184,8 @@ class App:
             return "čeká na měření"
         r = ctrl.reason
         pl, hl = c.power_levels()[:n], c.hr_levels()[:n]
+        if ctrl.pct is not None:
+            return r
         if r == "výkon" and pl:
             return f"výkon nad prahem {pl[desired - 1]} W" if desired > 0 else f"výkon pod prahem {pl[0]} W"
         if r == "tep" and hl:
@@ -1083,7 +1198,7 @@ class App:
         auto_level = ctrl.tick(now)
         desired = auto_level if self.auto_var.get() else self.manual_level
         if self.backend.state == "monitoring" or not self.auto_var.get():
-            self.fan_worker.set_desired(desired)
+            self.fan_worker.set_desired(desired, ctrl.pct if self.auto_var.get() else None)
         else:
             self.fan_worker.set_desired(None)
 
@@ -1102,13 +1217,14 @@ class App:
         self.t_hr["big"].configure(text="–" if ctrl.hr_now is None else str(ctrl.hr_now))
         self.t_hr["sub"].configure(text="" if ctrl.hr_now is None or not c.hr_max else
                                    f"{ctrl.hr_now / c.hr_max * 100:.0f} % max")
-        self.t_fan["big"].configure(text="Vyp" if desired == 0 else str(desired))
-        self._draw_bars(desired)
-        reason = self._reason_text(ctrl, desired)
-        if self.fan_actual is not None and self.fan_worker is not None and self.fan_actual != desired \
-                and (self.backend.state == "monitoring" or not self.auto_var.get()):
-            reason += f" · ventilátor zatím na {'Vyp' if self.fan_actual == 0 else self.fan_actual}"
-        self.t_fan["sub"].configure(text=reason)
+        if not vitr_ui.update_fan_tile(self, desired):  # výstup v % kreslí vitr_ui
+            self.t_fan["big"].configure(text="Vyp" if desired == 0 else str(desired))
+            self._draw_bars(desired)
+            reason = self._reason_text(ctrl, desired)
+            if self.fan_actual is not None and self.fan_worker is not None and self.fan_actual != desired \
+                    and (self.backend.state == "monitoring" or not self.auto_var.get()):
+                reason += f" · ventilátor zatím na {'Vyp' if self.fan_actual == 0 else self.fan_actual}"
+            self.t_fan["sub"].configure(text=reason)
 
         text, col = self._status_short()
         self.st_ant.set(text, col)
@@ -1126,7 +1242,7 @@ class App:
 
         if now - self._last_hist >= 1.0:
             self._last_hist = now
-            self.history.append((ctrl.power_smoothed, ctrl.hr_smoothed, desired))
+            self.history.append((ctrl.power_smoothed, ctrl.hr_smoothed, vitr_ui.fan_fraction(self, desired)))
             self._draw_chart()
             self._refresh_tree()
         self.root.after(250, self._tick)
@@ -1160,8 +1276,8 @@ class App:
             j = i
             while j + 1 < len(hist) and hist[j + 1][2] == lvl:
                 j += 1
-            if lvl:
-                y0 = pad_t + ph * (1 - lvl / n_lvl)
+            if lvl:  # podíl 0..1 (stupeň / počet stupňů, nebo % / 100)
+                y0 = pad_t + ph * (1 - min(1.0, lvl))
                 cv.create_rectangle(x_of(i), y0, x_of(j) + pw / HISTORY_S + 1, pad_t + ph,
                                     fill=FAN_BAND, outline="")
             i = j + 1

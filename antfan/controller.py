@@ -9,6 +9,8 @@
 - Režim "chytrý": výkon rozhoduje o zvýšení (reaguje hned), tep jen drží
   dosažený stupeň, dokud neklesne (tep reaguje se zpožděním 30–60 s, takže
   přes krátký odpočinek mezi intervaly ventilátor nezpomalí).
+- Plynulá rychlost a vítr podle rychlosti jízdy (výstup v %) jsou
+  v _tick_pct a ve vitr.py; klasické stupně se tím nemění.
 - Dofukování: po skončení šlapání ventilátor ještě chvíli běží na zvoleném
   stupni a teprve pak se vypne.
 - Výkon chodí z ANT+ s každou zprávou (~4× za s); konec šlapání pozná
@@ -21,9 +23,13 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 
+from .vitr import (SPEED_SMOOTHING_S, SPEED_STALE_S, WIND_DOWN_DELAY_S, WIND_HYST_KMH, PctLimiter,
+                   level_to_pct, pct_to_level, smooth_pct, wind_pct)
+
 SOURCE_MODES = {
     "smart": "Chytře: výkon zvyšuje, tep drží",
     "max": "Vyšší stupeň z výkonu a tepu",
+    "wind": "Vítr podle rychlosti jízdy",
     "power": "Jen výkon",
     "hr": "Jen tep",
 }
@@ -51,6 +57,12 @@ class ControlConfig:
     no_data_level: int = 0
     cooldown_s: float = 180.0       # dofukování po skončení (0 = vypnuto)
     cooldown_level: int = 1
+    # výstup v % (vitr.py)
+    output_mode: str = "steps"      # "steps" = stupně, "smooth" = plynulá rychlost mezi prahy
+    smooth_min_pct: int = 20        # rychlost na 1. prahu
+    smooth_down_pct_s: float = 2.0  # pokles nejvýš o tolik %/s (po prodlevě)
+    wind_full_kmh: float = 45.0     # vítr: 100 % při této rychlosti
+    wind_floor: bool = True         # vítr: minimum podle výkonu a tepu
 
     def power_levels(self) -> list[int]:
         if self.threshold_mode == "relative":
@@ -131,11 +143,24 @@ class Controller:
         self.hr_level = 0
         self.level = 0
         self.reason = "čekám na data"
+        # výstup v % (plynulá rychlost / vítr); None = klasické stupně
+        self.pct: float | None = None
+        self._last_speed: tuple[float, float] | None = None
+        self.speed_avg = Smoother()
+        self.speed_now: float | None = None
+        self.speed_smoothed: float | None = None
+        self.wind_pct_now: float | None = None
+        self._out = PctLimiter()
+        self._wind_out = PctLimiter()
+        self._raw_pct = 0.0
+        self._lead_win: deque[tuple[float, int | None]] = deque()
 
     def feed(self, kind: str, value: int, cadence: int | None = None, now: float | None = None):
         now = time.monotonic() if now is None else now
         if kind == "power":
             self._last_power = (now, value, cadence)
+        elif kind == "speed":
+            self._last_speed = (now, float(value))
         elif kind == "hr":
             if 25 <= value <= 240:  # 0 = pás nemá kontakt
                 self._last_hr = (now, value)
@@ -191,6 +216,9 @@ class Controller:
                                                  c.power_hysteresis, c.down_delay_s, now)
         self.hr_level = self.hr_src.update(self.hr_smoothed, c.hr_levels()[:n],
                                            c.hr_hysteresis, c.down_delay_s, now)
+        if self.pct_mode():
+            return self._tick_pct(now)
+        self.pct = None
 
         if self._last_any == 0.0 or now - self._last_any > c.no_data_s:
             raw, reason = min(c.no_data_level, n), "žádná data ze senzorů"
@@ -212,3 +240,112 @@ class Controller:
         self.level = level
         self.reason = reason
         return level
+
+    # ================================================================ výstup v %
+    def pct_mode(self) -> bool:
+        return self.cfg.source_mode == "wind" or self.cfg.output_mode == "smooth"
+
+    def _lead_power(self, now: float) -> float | None:
+        """Předstih (lead_enabled z feature/predstih) i pro plynulou rychlost:
+        nejnižší okamžitý výkon za posledních lead_s s, když je okno celé."""
+        c = self.cfg
+        if not getattr(c, "lead_enabled", False):
+            self._lead_win.clear()
+            return None
+        win = max(1.0, float(getattr(c, "lead_s", 3.0)))
+        self._lead_win.append((now, self.power_now))
+        while self._lead_win and now - self._lead_win[0][0] > win + 0.5:
+            self._lead_win.popleft()
+        vals = [v for t, v in self._lead_win if now - t <= win]
+        if not vals or any(v is None for v in vals) or now - self._lead_win[0][0] < win:
+            return None
+        return float(min(vals))
+
+    def _src_targets(self, now: float) -> tuple[float, float, float, float, str]:
+        """(výkon %, výkon % s hysterezí, tep %, tep % s hysterezí, poznámka)."""
+        c, n = self.cfg, self.max_level
+        pth, hth = c.power_levels()[:n], c.hr_levels()[:n]
+        p = self.power_smoothed
+        note = ""
+        lead = self._lead_power(now)
+        if lead is not None and p is not None and lead > p and smooth_pct(lead, pth, c.smooth_min_pct) > \
+                smooth_pct(p, pth, c.smooth_min_pct):
+            p, note = lead, "předstih"
+        p_up = smooth_pct(p, pth, c.smooth_min_pct)
+        p_keep = smooth_pct(None if p is None else p + c.power_hysteresis, pth, c.smooth_min_pct)
+        h = self.hr_smoothed
+        h_up = smooth_pct(h, hth, c.smooth_min_pct)
+        h_keep = smooth_pct(None if h is None else h + c.hr_hysteresis, hth, c.smooth_min_pct)
+        return p_up, p_keep, h_up, h_keep, note
+
+    def _combine_pct(self, mode: str, now: float) -> tuple[float, float, str]:
+        """(cíl %, cíl s hysterezí, důvod) pro výkon/tep ve stejných režimech jako stupně."""
+        p_up, p_keep, h_up, h_keep, note = self._src_targets(now)
+        have_p, have_h = self.power_smoothed is not None, self.hr_smoothed is not None
+        p_txt = note or (f"výkon {self.power_smoothed:.0f} W" if have_p else "")
+        h_txt = f"tep {self.hr_smoothed:.0f} bpm" if have_h else ""
+        if mode == "power" or (mode in ("smart", "max") and not have_h):
+            return (p_up, p_keep, p_txt) if have_p else (0.0, 0.0, "chybí výkon")
+        if mode == "hr" or (mode in ("smart", "max") and not have_p):
+            return (h_up, h_keep, h_txt) if have_h else (0.0, 0.0, "chybí tep")
+        if mode == "max":
+            return (p_up, p_keep, p_txt) if p_up >= h_up else (h_up, h_keep, h_txt)
+        # smart: výkon zvyšuje, tep jen drží dosaženou rychlost
+        hold = min(self._out.out, h_keep)
+        if p_keep >= hold:
+            return p_up, p_keep, p_txt
+        return p_up, hold, "tep drží rychlost"
+
+    def _tick_pct(self, now: float) -> int:
+        c, n = self.cfg, self.max_level
+        rate = max(0.1, float(c.smooth_down_pct_s))
+
+        # rychlost jízdy
+        if self._last_speed and now - self._last_speed[0] <= SPEED_STALE_S:
+            self.speed_now = self._last_speed[1]
+        else:
+            self.speed_now = None
+        self.speed_smoothed = self.speed_avg.add(now, self.speed_now, SPEED_SMOOTHING_S)
+
+        no_data = self._last_any == 0.0 or now - self._last_any > c.no_data_s
+        if no_data:
+            raw = level_to_pct(min(c.no_data_level, n), n)
+            self._out.out = self._wind_out.out = raw
+            reason = "žádná data ze senzorů"
+            self.wind_pct_now = None
+        elif c.source_mode == "wind":
+            v = self.speed_smoothed
+            w_up = wind_pct(v, c.wind_full_kmh)
+            w_keep = wind_pct(None if v is None else v + WIND_HYST_KMH, c.wind_full_kmh)
+            self.wind_pct_now = None if v is None else w_up
+            wind = self._wind_out.update(w_up, w_keep, WIND_DOWN_DELAY_S, max(rate, 5.0), now)
+            reason = "chybí rychlost" if v is None else f"vítr {v:.0f} km/h"
+            raw = wind
+            if c.wind_floor:
+                up, keep, why = self._combine_pct("smart", now)
+                floor = self._out.update(up, keep, c.down_delay_s, rate, now)
+                if floor > wind + 0.5:
+                    raw = floor
+                    reason = f"minimum: {why}" if why and not why.startswith("chybí") else "minimum podle výkonu"
+            else:
+                self._out.update(0.0, 0.0, 0.0, 1000.0, now)
+        else:
+            self.wind_pct_now = None
+            up, keep, reason = self._combine_pct(c.source_mode, now)
+            raw = self._out.update(up, keep, c.down_delay_s, rate, now)
+        self._raw_pct = raw
+        if raw > 0:
+            self._last_on = now
+
+        pct = raw
+        cool = level_to_pct(min(c.cooldown_level, n), n)
+        if (c.cooldown_s > 0 and raw < cool and self._last_on is not None
+                and now - self._last_on < c.cooldown_s):
+            pct = cool
+            left = int(c.cooldown_s - (now - self._last_on))
+            reason = f"dofukování ještě {left // 60}:{left % 60:02d}"
+        self._raw_level = pct_to_level(raw, n)
+        self.pct = round(pct, 1)
+        self.level = pct_to_level(pct, n)
+        self.reason = reason
+        return self.level
