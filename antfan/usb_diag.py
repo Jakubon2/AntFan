@@ -19,6 +19,7 @@ import subprocess
 import sys
 import threading
 import time
+from .i18n import _
 
 log = logging.getLogger("antfan.usb")
 
@@ -272,7 +273,7 @@ def _patch_usb_driver() -> None:
             _boost_current_thread()
         if getattr(self, "_antfan_dead", False):
             time.sleep(0.5)  # nečinně čekáme, než nás AntFan zavře
-            raise usb.core.USBTimeoutError("dongle ztracen")
+            raise usb.core.USBTimeoutError(_("dongle ztracen"))
         try:
             data = self._in.read(4096)
         except usb.core.USBTimeoutError:
@@ -283,7 +284,7 @@ def _patch_usb_driver() -> None:
             if n >= DEAD_AFTER_ERRORS:
                 log.warning("Spojení s donglem ztraceno (%r) – přestávám číst", e)
                 self._antfan_dead = True
-                raise usb.core.USBTimeoutError("dongle ztracen") from e
+                raise usb.core.USBTimeoutError(_("dongle ztracen")) from e
             time.sleep(0.2 * n)
             raise
         self._antfan_errors = 0
@@ -373,14 +374,14 @@ def usb_reset() -> str:
                 d.reset()
             except NotImplementedError:
                 if sys.platform == "win32":
-                    return ("Tento ovladač USB reset nepodporuje (WinUSB). "
-                            "Vytáhněte dongle a zapojte ho znovu.")
-                return "USB reset tu nejde. Vytáhněte dongle a zapojte ho znovu."
+                    return (_("Tento ovladač USB reset nepodporuje (WinUSB). "
+                            "Vytáhněte dongle a zapojte ho znovu."))
+                return _("USB reset tu nejde. Vytáhněte dongle a zapojte ho znovu.")
             except Exception as e:  # noqa: BLE001
                 if is_busy_error(e):
                     raise DongleBusy(str(e)) from e
                 raise
-        return "Dongle byl resetován."
+        return _("Dongle byl resetován.")
     finally:
         _dispose(devs)
         gc.collect()
@@ -425,7 +426,7 @@ def _ps(fmt: str) -> dict[int, str]:
                          errors="replace", timeout=10).stdout
     res = {}
     for line in out.splitlines():
-        pid, _, rest = line.strip().partition(" ")
+        pid, _u, rest = line.strip().partition(" ")
         if pid.isdigit():
             res[int(pid)] = rest.strip()
     return res
@@ -487,32 +488,32 @@ def find_blocking_processes(procs=None) -> tuple[list[str], list[int]]:
 
 
 def busy_message(apps: list[str], antfans: list[int]) -> str:
-    lines = ["ANT+ dongle je zapojený, ale nejde otevřít – drží ho jiný proces "
-             "nebo je v zaseknutém stavu."]
+    lines = [_("ANT+ dongle je zapojený, ale nejde otevřít – drží ho jiný proces "
+             "nebo je v zaseknutém stavu.")]
     if apps:
-        lines += ["", "Běží programy, které dongle používají:"]
+        lines += ["", _("Běží programy, které dongle používají:")]
         lines += [f"  • {a}" for a in apps]
-        lines += ["", "Jeden dongle může mít v jednu chvíli jen jeden program. AntFan ho "
-                  "druhému programu nebere, aby mu nerozbil spojení. Možnosti:",
-                  "  1. Druhý ANT+ dongle – AntFan si sám vezme ten volný (nejspolehlivější).",
-                  "  2. Nechat dongle tomu programu a AntFan přepnout na Bluetooth senzory "
-                  "(pruh v okně jízdy nebo Nastavení → Souběh).",
-                  "  3. Spustit nejdřív AntFan a „Spustit měření“, až potom Rouvy/Zwift "
-                  "a v něm párovat senzory jen přes Bluetooth.",
-                  "  4. Ukončit ten program – " + (
-                      "zkontrolujte i ikonky v horní liště (Zwift Launcher a Garmin Express "
-                      "běží na pozadí i po zavření okna)." if sys.platform == "darwin" else
-                      "zkontrolujte i ikonky u hodin (Zwift Launcher a "
-                      "Garmin Express běží na pozadí i po zavření okna).")]
+        lines += ["", _("Jeden dongle může mít v jednu chvíli jen jeden program. AntFan ho "
+                  "druhému programu nebere, aby mu nerozbil spojení. Možnosti:"),
+                  _("  1. Druhý ANT+ dongle – AntFan si sám vezme ten volný (nejspolehlivější)."),
+                  _("  2. Nechat dongle tomu programu a AntFan přepnout na Bluetooth senzory "
+                  "(pruh v okně jízdy nebo Nastavení → Souběh)."),
+                  _("  3. Spustit nejdřív AntFan a „Spustit měření“, až potom Rouvy/Zwift "
+                  "a v něm párovat senzory jen přes Bluetooth."),
+                  _("  4. Ukončit ten program – ") + (
+                      _("zkontrolujte i ikonky v horní liště (Zwift Launcher a Garmin Express "
+                      "běží na pozadí i po zavření okna).") if sys.platform == "darwin" else
+                      _("zkontrolujte i ikonky u hodin (Zwift Launcher a "
+                      "Garmin Express běží na pozadí i po zavření okna)."))]
     if antfans:
-        lines += ["", f"Běží i jiná instance AntFan (PID {', '.join(map(str, antfans))})."]
+        lines += ["", _("Běží i jiná instance AntFan (PID {v}).").format(v=', '.join(map(str, antfans)))]
     if not apps and not antfans:
-        lines += ["", "Žádný známý program, který by dongle držel, neběží. Zkuste:",
-                  "  1. tlačítko „Reset donglu“,",
-                  "  2. vytáhnout dongle a zapojit ho do jiného USB portu (ne do hubu),",
-                  ("  3. v Monitoru činností zkontrolovat, že neběží jiný program, který "
-                   "používá ANT+." if sys.platform == "darwin" else
-                   "  3. ve Správci zařízení ověřit, že dongle má ovladač libusbK.")]
+        lines += ["", _("Žádný známý program, který by dongle držel, neběží. Zkuste:"),
+                  _("  1. tlačítko „Reset donglu“,"),
+                  _("  2. vytáhnout dongle a zapojit ho do jiného USB portu (ne do hubu),"),
+                  (_("  3. v Monitoru činností zkontrolovat, že neběží jiný program, který "
+                   "používá ANT+.") if sys.platform == "darwin" else
+                   _("  3. ve Správci zařízení ověřit, že dongle má ovladač libusbK."))]
     return "\n".join(lines)
 
 
@@ -525,7 +526,7 @@ def kill_process(pid: int) -> bool:
         import signal
 
         os.kill(pid, signal.SIGTERM)
-        for _ in range(20):  # visící proces dostane 2 s, pak natvrdo
+        for _u in range(20):  # visící proces dostane 2 s, pak natvrdo
             time.sleep(0.1)
             try:
                 os.kill(pid, 0)
@@ -543,9 +544,9 @@ def kill_process(pid: int) -> bool:
 def task_manager_hint() -> str:
     """Kde uživatel ručně ukončí visící AntFan (do hlášek)."""
     if sys.platform == "darwin":
-        return "v Monitoru činností (proces AntFan nebo Python)"
-    return "ve Správci úloh (proces AntFan.exe nebo pythonw.exe)"
+        return _("v Monitoru činností (proces AntFan nebo Python)")
+    return _("ve Správci úloh (proces AntFan.exe nebo pythonw.exe)")
 
 
 def task_manager_name() -> str:
-    return "Monitor činností" if sys.platform == "darwin" else "Správce úloh"
+    return _("Monitor činností") if sys.platform == "darwin" else _("Správce úloh")

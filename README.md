@@ -1,5 +1,7 @@
 # AntFan – ventilátor řízený výkonem a tepem (ANT+)
 
+[English](README.en.md)
+
 Program pro Windows 10/11 a macOS (Apple Silicon):
 
 1. připojí se k ANT+ USB donglu,

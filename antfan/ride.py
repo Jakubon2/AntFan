@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import config as config_mod
+from .i18n import _, N_
 
 MIN_RIDE_S = 300        # kratší jízdy se neukládají ani neshrnují
 MAX_GAP_S = 5.0         # delší mezera mezi vzorky (odpojený dongle) se do času nepočítá
@@ -24,21 +25,21 @@ RIDES_DIR = "jizdy"
 
 # horní hranice zón v % FTP (Coggan); poslední zóna je bez horní hranice
 POWER_ZONES = [
-    ("Z1", "Regenerace", 55),
-    ("Z2", "Vytrvalost", 75),
-    ("Z3", "Tempo", 90),
-    ("Z4", "Práh", 105),
-    ("Z5", "VO2max", 120),
-    ("Z6", "Anaerobní", 150),
-    ("Z7", "Sprint", None),
+    ("Z1", N_("Regenerace"), 55),
+    ("Z2", N_("Vytrvalost"), 75),
+    ("Z3", N_("Tempo"), 90),
+    ("Z4", N_("Práh"), 105),
+    ("Z5", N_("VO2max"), 120),
+    ("Z6", N_("Anaerobní"), 150),
+    ("Z7", N_("Sprint"), None),
 ]
 # horní hranice zón v % max. tepu
 HR_ZONES = [
-    ("Z1", "Regenerace", 60),
-    ("Z2", "Vytrvalost", 70),
-    ("Z3", "Tempo", 80),
-    ("Z4", "Práh", 90),
-    ("Z5", "Maximum", None),
+    ("Z1", N_("Regenerace"), 60),
+    ("Z2", N_("Vytrvalost"), 70),
+    ("Z3", N_("Tempo"), 80),
+    ("Z4", N_("Práh"), 90),
+    ("Z5", N_("Maximum"), None),
 ]
 
 CSV_COLUMNS = ["cas_s", "cas", "vykon_w", "vykon_prumer_w", "kadence_rpm", "tep_bpm",
@@ -116,7 +117,7 @@ def normalized_power(powers: list[float], window: int = 30) -> float | None:
 
 
 def zone_index(pct: float, zones) -> int:
-    for i, (_, _, hi) in enumerate(zones):
+    for i, (_u, _u, hi) in enumerate(zones):
         if hi is None or pct <= hi:
             return i
     return len(zones) - 1
@@ -235,15 +236,15 @@ def fmt_duration(sec: float) -> str:
 
 def decoupling_text(value: float | None) -> str:
     if value is None:
-        return "Nelze spočítat: chybí výkon nebo tep v obou polovinách jízdy."
+        return _("Nelze spočítat: chybí výkon nebo tep v obou polovinách jízdy.")
     if value < 5:
-        verdict = "Pod 5 % je dobré: tep držel krok s výkonem."
+        verdict = _("Pod 5 % je dobré: tep držel krok s výkonem.")
     elif value < 10:
-        verdict = "5–10 %: tep ke konci stoupal, možná únava, teplo nebo málo pití."
+        verdict = _("5–10 %: tep ke konci stoupal, možná únava, teplo nebo málo pití.")
     else:
-        verdict = "Nad 10 %: tep v druhé polovině výrazně ujel, jízda byla nad aerobní kapacitou."
-    return ("O kolik % se ve 2. polovině jízdy zhoršil poměr výkon/tep proti 1. polovině. "
-            + verdict + " U intervalů má menší vypovídací hodnotu.")
+        verdict = _("Nad 10 %: tep v druhé polovině výrazně ujel, jízda byla nad aerobní kapacitou.")
+    return (_("O kolik % se ve 2. polovině jízdy zhoršil poměr výkon/tep proti 1. polovině. ")
+            + verdict + _(" U intervalů má menší vypovídací hodnotu."))
 
 
 # ====================================================================== CSV

@@ -22,6 +22,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from .i18n import _
 
 log = logging.getLogger("antfan.cloud")
 
@@ -88,7 +89,7 @@ class XiaomiCloud:
             self._timeout = float(data.get("timeout", 300))
             self.qr_png = self._get(data["qr"]).read()
         except (urllib.error.URLError, OSError, KeyError, ValueError) as e:
-            raise CloudError(f"Nepodařilo se spojit s účtem Xiaomi ({e})") from e
+            raise CloudError(_("Nepodařilo se spojit s účtem Xiaomi ({e})").format(e=e)) from e
 
     def wait_login(self, cancelled) -> None:
         """Krok 2: čeká, až uživatel QR kód naskenuje a přihlášení potvrdí."""
@@ -96,9 +97,9 @@ class XiaomiCloud:
         data = None
         while data is None:
             if cancelled():
-                raise CloudError("Zrušeno.")
+                raise CloudError(_("Zrušeno."))
             if time.time() - start > self._timeout:
-                raise CloudError("Vypršel čas na naskenování QR kódu. Zkuste to znovu.")
+                raise CloudError(_("Vypršel čas na naskenování QR kódu. Zkuste to znovu."))
             try:
                 data = _json(self._get(self._lp_url, timeout=10).read().decode("utf-8"))
             except (socket.timeout, TimeoutError):
@@ -109,15 +110,15 @@ class XiaomiCloud:
             except (urllib.error.URLError, OSError) as e:
                 if isinstance(getattr(e, "reason", None), (socket.timeout, TimeoutError)):
                     continue
-                raise CloudError(f"Spojení s účtem Xiaomi spadlo ({e})") from e
+                raise CloudError(_("Spojení s účtem Xiaomi spadlo ({e})").format(e=e)) from e
         try:
             self.user_id, self.ssecurity = data["userId"], data["ssecurity"]
             self._get(data["location"]).read()
         except (KeyError, urllib.error.URLError, OSError) as e:
-            raise CloudError(f"Přihlášení se nepodařilo dokončit ({e})") from e
+            raise CloudError(_("Přihlášení se nepodařilo dokončit ({e})").format(e=e)) from e
         self.service_token = next((c.value for c in self.jar if c.name == "serviceToken"), None)
         if not self.service_token:
-            raise CloudError("Účet Xiaomi nevrátil přihlašovací údaje.")
+            raise CloudError(_("Účet Xiaomi nevrátil přihlašovací údaje."))
 
     # ------------------------------------------------------------ API
     def _signed_nonce(self, nonce: str) -> str:
@@ -166,7 +167,7 @@ class XiaomiCloud:
         out, seen = [], set()
         for server in SERVERS:
             if progress:
-                progress(f"Hledám zařízení na serveru {server}…")
+                progress(_("Hledám zařízení na serveru {server}…").format(server=server))
             homes = []
             r = self._call(server, "/v2/homeroom/gethome",
                            {"fg": True, "fetch_share": True, "fetch_share_dev": True, "limit": 300, "app_ver": 7})

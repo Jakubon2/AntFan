@@ -250,5 +250,10 @@ class Worker(unittest.TestCase):
         self.assertIs(self.w.percent_capable, False)
 
 
+from tests import czech_module  # noqa: E402
+
+setUpModule, tearDownModule = czech_module()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections import Counter, deque
+from .i18n import _, N_
 
 log = logging.getLogger("antfan.rx")
 
@@ -23,7 +24,7 @@ FE_TYPE = 17
 
 # kanálové periody (1/32768 s) dle profilů ANT+ → očekávaný počet zpráv za s
 PERIODS = {HR_TYPE: 8070, PM_TYPE: 8182, FE_TYPE: 8192}
-NAMES = {HR_TYPE: "Tep", PM_TYPE: "Powermetr", FE_TYPE: "Trenažér"}
+NAMES = {HR_TYPE: N_("Tep"), PM_TYPE: N_("Powermetr"), FE_TYPE: N_("Trenažér")}
 
 COAST_S = 3.5        # čítač událostí stojí déle => nešlape se => 0 W
 GAP_WARN_S = 1.5     # mezera mezi zprávami, která se zapíše do logu
@@ -220,7 +221,7 @@ class GapClassifier:
                 self._events.popleft()
             all_n = sum(1 for _, k, _ in self._events if k == "all")
             single: dict[str, int] = {}
-            for _, k, lbl in self._events:
+            for _u, k, lbl in self._events:
                 if k == "single":
                     single[lbl] = single.get(lbl, 0) + 1
             return all_n, single

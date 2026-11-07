@@ -168,5 +168,10 @@ class TestProfiles(unittest.TestCase):
             profiles.delete(cfg, "Výchozí")
 
 
+from tests import czech_module  # noqa: E402
+
+setUpModule, tearDownModule = czech_module()
+
+
 if __name__ == "__main__":
     unittest.main()

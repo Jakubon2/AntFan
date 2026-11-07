@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 
 from . import usb_diag
 from .ant_backend import FE_TYPE, HR_TYPE, PM_TYPE, FoundDevice, base_type, is_ble
+from .i18n import _, N_
 
 log = logging.getLogger("antfan.coexist")
 
@@ -46,8 +47,8 @@ TRAINING_APPS = {
 # pomocné procesy, které senzory nečtou (Zwift Launcher drží dongle, ale nejezdí se v něm)
 _IGNORE = ("crashpad", "helper", "updater", "webview", "installer")
 
-BT_LIMIT = ("Trenažér i pás obvykle dovolí jen 1–2 Bluetooth spojení naráz, proto stejný senzor "
-            "nepřipojujte přes Bluetooth k oběma programům.")
+BT_LIMIT = (N_("Trenažér i pás obvykle dovolí jen 1–2 Bluetooth spojení naráz, proto stejný senzor "
+            "nepřipojujte přes Bluetooth k oběma programům."))
 
 
 @dataclass
@@ -132,38 +133,28 @@ def is_busy_error(text: str) -> bool:
 def advise(sit: Situation, selected: list[FoundDevice], devices: list[FoundDevice]) -> Advice | None:
     if not sit.apps and not sit.busy:
         return None
-    who = ", ".join(sit.apps) if sit.apps else "jiný program"
+    who = ", ".join(sit.apps) if sit.apps else _("jiný program")
     uses_bt = any(is_ble(d.device_type) for d in selected)
     uses_ant = any(not is_ble(d.device_type) for d in selected)
 
     if sit.dongles >= 2 and not sit.busy:
-        return Advice("two_dongles", f"Běží {who}. Máte dva ANT+ dongly, každý program má svůj.",
-                      f"Běží {who} a jsou zapojené dva ANT+ dongly. AntFan si vezme volný, {who} ten "
-                      "druhý. V obou programech párujte senzory přes ANT+, ANT+ senzor vysílá všem "
-                      "naráz. Na Bluetooth nic neměňte.")
+        return Advice("two_dongles", _("Běží {who}. Máte dva ANT+ dongly, každý program má svůj.").format(who=who),
+                      _("Běží {who} a jsou zapojené dva ANT+ dongly. AntFan si vezme volný, {who} ten druhý. V obou programech párujte senzory přes ANT+, ANT+ senzor vysílá všem naráz. Na Bluetooth nic neměňte.").format(who=who))
 
     if sit.busy and (uses_ant or not uses_bt):
         counterpart = bt_counterparts(selected, devices)
         can = any(v is not None for v in counterpart.values())
-        how = ("Klikněte na „Přepnout na Bluetooth senzory“, AntFan vybere BT verze vašich senzorů."
-               if can else "V Nastavení → Senzory spusťte hledání a vyberte senzory s označením (BT).")
-        return Advice("antfan_bt", f"ANT+ dongle drží {who}. AntFan může jet přes Bluetooth.",
-                      f"ANT+ dongle drží {who}. Nechte ho tam a AntFan připojte k senzorům přes "
-                      f"Bluetooth. {how}\n\nV {who} pak párujte senzory jen přes ANT+, ať se "
-                      f"o Bluetooth nepřetahujete. {BT_LIMIT}\n\nSpolehlivější je druhý ANT+ dongle: "
-                      "AntFan si vezme ten volný a vše zůstane na ANT+.", can_switch=can)
+        how = (_("Klikněte na „Přepnout na Bluetooth senzory“, AntFan vybere BT verze vašich senzorů.")
+               if can else _("V Nastavení → Senzory spusťte hledání a vyberte senzory s označením (BT)."))
+        return Advice("antfan_bt", _("ANT+ dongle drží {who}. AntFan může jet přes Bluetooth.").format(who=who),
+                      _("ANT+ dongle drží {who}. Nechte ho tam a AntFan připojte k senzorům přes Bluetooth. {how}\n\nV {who} pak párujte senzory jen přes ANT+, ať se o Bluetooth nepřetahujete. {BT_LIMIT}\n\nSpolehlivější je druhý ANT+ dongle: AntFan si vezme ten volný a vše zůstane na ANT+.").format(who=who, how=how, BT_LIMIT=_(BT_LIMIT)), can_switch=can)
 
     if uses_bt:
-        return Advice("bt_clash", f"Běží {who} a AntFan čte senzory přes Bluetooth.",
-                      f"Běží {who} a AntFan je připojen k senzorům přes Bluetooth. {BT_LIMIT} "
-                      f"Když {who} používá ANT+, je vše v pořádku. Pokud i {who} jede přes "
-                      "Bluetooth, připojte jeden z programů přes ANT+ (AntFan: vyberte senzory bez "
-                      "označení (BT)).")
+        return Advice("bt_clash", _("Běží {who} a AntFan čte senzory přes Bluetooth.").format(who=who),
+                      _("Běží {who} a AntFan je připojen k senzorům přes Bluetooth. {BT_LIMIT} Když {who} používá ANT+, je vše v pořádku. Pokud i {who} jede přes Bluetooth, připojte jeden z programů přes ANT+ (AntFan: vyberte senzory bez označení (BT)).").format(who=who, BT_LIMIT=_(BT_LIMIT)))
 
-    return Advice("app_bt", f"Běží {who}. V něm párujte senzory přes Bluetooth.",
-                  f"Běží {who}. ANT+ dongle má AntFan, takže v {who} párujte senzory přes "
-                  f"Bluetooth (ANT+ senzory, které umí obojí, vysílají i BT). {BT_LIMIT}\n\n"
-                  "Když chcete mít v obou programech ANT+, zapojte druhý dongle.")
+    return Advice("app_bt", _("Běží {who}. V něm párujte senzory přes Bluetooth.").format(who=who),
+                  _("Běží {who}. ANT+ dongle má AntFan, takže v {who} párujte senzory přes Bluetooth (ANT+ senzory, které umí obojí, vysílají i BT). {BT_LIMIT}\n\nKdyž chcete mít v obou programech ANT+, zapojte druhý dongle.").format(who=who, BT_LIMIT=_(BT_LIMIT)))
 
 
 # ----------------------------------------------------------- BT protějšky

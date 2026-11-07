@@ -167,5 +167,10 @@ class SimulatedNeighbors(unittest.TestCase):
             b.shutdown()
 
 
+from tests import czech_module  # noqa: E402
+
+setUpModule, tearDownModule = czech_module()
+
+
 if __name__ == "__main__":
     unittest.main()

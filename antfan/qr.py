@@ -4,6 +4,7 @@ Stačí na adresu pro mobil (do ~200 znaků). Bez externích knihoven.
 Postup podle ISO/IEC 18004, struktura převzatá z qrcodegen (Nayuki, MIT).
 """
 from __future__ import annotations
+from .i18n import _
 
 # korekce M: verze -> (EC kódových slov na blok, [(počet bloků, datových slov v bloku), ...])
 _BLOCKS_M = {
@@ -34,7 +35,7 @@ def _gf_mul(x: int, y: int) -> int:
 def _rs_divisor(degree: int) -> list[int]:
     res = [0] * (degree - 1) + [1]
     root = 1
-    for _ in range(degree):
+    for _u in range(degree):
         for j in range(degree):
             res[j] = _gf_mul(res[j], root)
             if j + 1 < degree:
@@ -65,7 +66,7 @@ def encode(text: str, mask: int | None = None) -> list[list[bool]]:
         if 4 + cnt_bits + 8 * len(data) <= _data_capacity(ver) * 8:
             break
     else:
-        raise ValueError("text je na QR kód příliš dlouhý")
+        raise ValueError(_("text je na QR kód příliš dlouhý"))
 
     # --- datové bity
     bits: list[int] = []
@@ -91,7 +92,7 @@ def encode(text: str, mask: int | None = None) -> list[list[bool]]:
     div = _rs_divisor(ec_len)
     blocks, pos = [], 0
     for n, k in groups:
-        for _ in range(n):
+        for _u in range(n):
             blk = words[pos:pos + k]
             pos += k
             blocks.append((blk, _rs_remainder(blk, div)))
@@ -131,7 +132,7 @@ def encode(text: str, mask: int | None = None) -> list[list[bool]]:
     def format_bits(m):
         d = (_ECL_M_BITS << 3) | m
         rem = d
-        for _ in range(10):
+        for _u in range(10):
             rem = (rem << 1) ^ ((rem >> 9) * 0x537)
         b = ((d << 10) | rem) ^ 0x5412
         for i in range(6):
@@ -150,7 +151,7 @@ def encode(text: str, mask: int | None = None) -> list[list[bool]]:
     format_bits(0)  # rezervace
     if ver >= 7:
         rem = ver
-        for _ in range(12):
+        for _u in range(12):
             rem = (rem << 1) ^ ((rem >> 11) * 0x1F25)
         vb = (ver << 12) | rem
         for i in range(18):

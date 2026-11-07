@@ -125,5 +125,10 @@ class Tracker(unittest.TestCase):
         self.assertIn("Každých 20 min", tr.summary())
 
 
+from tests import czech_module  # noqa: E402
+
+setUpModule, tearDownModule = czech_module()
+
+
 if __name__ == "__main__":
     unittest.main()

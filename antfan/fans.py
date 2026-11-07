@@ -16,6 +16,7 @@ import logging
 import urllib.error
 import urllib.parse
 import urllib.request
+from .i18n import _
 
 log = logging.getLogger("antfan.fan")
 
@@ -163,7 +164,7 @@ class ShellyFan(_OnOff):
         super().__init__(cfg)
         host = cfg.shelly_host.strip()
         if not host:
-            raise FanError("Zadejte IP adresu Shelly.")
+            raise FanError(_("Zadejte IP adresu Shelly."))
         self.base = host if host.startswith("http") else f"http://{host}"
         self.ch = int(cfg.shelly_channel)
         self._gen: int | None = None
@@ -173,10 +174,10 @@ class ShellyFan(_OnOff):
             return _get_json(self.base + path, timeout=3.0)
         except urllib.error.HTTPError as e:
             if e.code == 401:
-                raise FanError("Shelly má zapnuté heslo. AntFan zatím umí jen Shelly bez hesla.") from e
-            raise FanError(f"Shelly vrátilo chybu {e.code}") from e
+                raise FanError(_("Shelly má zapnuté heslo. AntFan zatím umí jen Shelly bez hesla.")) from e
+            raise FanError(_("Shelly vrátilo chybu {code}").format(code=e.code)) from e
         except (urllib.error.URLError, OSError, ValueError) as e:
-            raise FanError(f"Shelly na {self.base} neodpovídá ({e})") from e
+            raise FanError(_("Shelly na {base} neodpovídá ({e})").format(base=self.base, e=e)) from e
 
     def _generation(self) -> int:
         if self._gen is None:
@@ -213,9 +214,9 @@ class HomeAssistantFan(_OnOff):
         super().__init__(cfg)
         url, tok, ent = cfg.ha_url.strip().rstrip("/"), cfg.ha_token.strip(), cfg.ha_entity.strip()
         if not (url and tok and ent):
-            raise FanError("Zadejte adresu Home Assistant, token a entitu.")
+            raise FanError(_("Zadejte adresu Home Assistant, token a entitu."))
         if "." not in ent:
-            raise FanError("Entita musí mít tvar fan.nazev nebo switch.nazev.")
+            raise FanError(_("Entita musí mít tvar fan.nazev nebo switch.nazev."))
         self.base = url if url.startswith("http") else f"http://{url}"
         self.token, self.entity = tok, ent
         self.domain = ent.split(".", 1)[0]
@@ -231,12 +232,12 @@ class HomeAssistantFan(_OnOff):
                 return json.loads(txt) if txt else None
         except urllib.error.HTTPError as e:
             if e.code == 401:
-                raise FanError("Home Assistant odmítl token (401).") from e
+                raise FanError(_("Home Assistant odmítl token (401).")) from e
             if e.code == 404:
-                raise FanError(f"Home Assistant nezná entitu {self.entity}.") from e
-            raise FanError(f"Home Assistant vrátil chybu {e.code}") from e
+                raise FanError(_("Home Assistant nezná entitu {entity}.").format(entity=self.entity)) from e
+            raise FanError(_("Home Assistant vrátil chybu {code}").format(code=e.code)) from e
         except (urllib.error.URLError, OSError, ValueError) as e:
-            raise FanError(f"Home Assistant na {self.base} neodpovídá ({e})") from e
+            raise FanError(_("Home Assistant na {base} neodpovídá ({e})").format(base=self.base, e=e)) from e
 
     def info(self) -> dict:
         st = self._call(f"/api/states/{self.entity}")

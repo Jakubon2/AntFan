@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from .vitr import pct_to_level
+from .i18n import _
 
 
 def _ui():
@@ -22,21 +23,21 @@ def build_control_section(app, p) -> None:
     c = app.cfg.control
     box = tk.Frame(p, bg=A.BG)
     box.pack(fill="x", pady=(12, 0))
-    app._lbl(box, "Výstup", fg=A.TEXT, font=app.fonts.body_b, anchor="w").pack(fill="x", pady=(0, 4))
+    app._lbl(box, _("Výstup"), fg=A.TEXT, font=app.fonts.body_b, anchor="w").pack(fill="x", pady=(0, 4))
     app.out_mode_var = tk.StringVar(value=c.output_mode if c.output_mode in ("steps", "smooth") else "steps")
     r = tk.Frame(box, bg=A.BG)
     r.pack(fill="x")
-    ttk.Radiobutton(r, text="Stupně", variable=app.out_mode_var, value="steps",
+    ttk.Radiobutton(r, text=_("Stupně"), variable=app.out_mode_var, value="steps",
                     command=app.on_apply).pack(side="left")
-    ttk.Radiobutton(r, text="Plynulá rychlost", variable=app.out_mode_var, value="smooth",
+    ttk.Radiobutton(r, text=_("Plynulá rychlost"), variable=app.out_mode_var, value="smooth",
                     command=app.on_apply).pack(side="left", padx=10)
 
     g = tk.Frame(box, bg=A.BG)
     g.pack(fill="x", pady=(4, 0))
     rows = [
-        ("Rychlost na 1. prahu", c.smooth_min_pct, "%", "e_smooth_min"),
-        ("Pokles nejvýš", c.smooth_down_pct_s, "%/s", "e_smooth_rate"),
-        ("Vítr: plná rychlost při", c.wind_full_kmh, "km/h", "e_wind_full"),
+        (_("Rychlost na 1. prahu"), c.smooth_min_pct, "%", "e_smooth_min"),
+        (_("Pokles nejvýš"), c.smooth_down_pct_s, "%/s", "e_smooth_rate"),
+        (_("Vítr: plná rychlost při"), c.wind_full_kmh, "km/h", "e_wind_full"),
     ]
     for i, (label, val, unit, attr) in enumerate(rows):
         ttk.Label(g, text=label).grid(row=i, column=0, sticky="w", pady=2)
@@ -45,11 +46,11 @@ def build_control_section(app, p) -> None:
         app._lbl(g, unit).grid(row=i, column=2, sticky="w")
         setattr(app, attr, e)
     app.wind_floor_var = tk.BooleanVar(value=bool(c.wind_floor))
-    ttk.Checkbutton(box, text="Vítr: minimum podle výkonu a tepu (pomalé stoupání do kopce)",
+    ttk.Checkbutton(box, text=_("Vítr: minimum podle výkonu a tepu (pomalé stoupání do kopce)"),
                     variable=app.wind_floor_var, command=app.on_apply).pack(anchor="w", pady=(4, 0))
-    app._lbl(box, "Plynulá rychlost: od 1. do posledního prahu roste lineárně do 100 %. "
+    app._lbl(box, _("Plynulá rychlost: od 1. do posledního prahu roste lineárně do 100 %. "
                   "Vítr: pod 5 km/h vypnuto, rychlost jízdy posílá trenažér (FE-C), např. z Rouvy. "
-                  "Ventilátor bez rychlosti v % dostane nejbližší stupeň.",
+                  "Ventilátor bez rychlosti v % dostane nejbližší stupeň."),
              anchor="w", justify="left", wraplength=int(440 * app.px)).pack(fill="x", pady=(4, 0))
 
 
@@ -61,7 +62,7 @@ def read_control_section(app, c) -> None:
     rate = float(app.e_smooth_rate.get().replace(",", "."))
     full = float(app.e_wind_full.get().replace(",", "."))
     if not (0 <= mn <= 100 and rate > 0 and 10 <= full <= 120):
-        raise ValueError("Rychlost 0–100 %, pokles nad 0 %/s, vítr 10–120 km/h.")
+        raise ValueError(_("Rychlost 0–100 %, pokles nad 0 %/s, vítr 10–120 km/h."))
     c.smooth_min_pct, c.smooth_down_pct_s, c.wind_full_kmh = mn, rate, full
     c.output_mode = app.out_mode_var.get()
     c.wind_floor = bool(app.wind_floor_var.get())
@@ -86,24 +87,24 @@ def update_fan_tile(app, desired: int) -> bool:
     n = max(1, app.cfg.fan.max_level)
     pct = ctrl.pct
     stepped = app.fan_worker.percent_capable is False
-    app.t_fan["big"].configure(text="Vyp" if pct <= 0 else f"{pct:.0f} %")
+    app.t_fan["big"].configure(text=_("Vyp") if pct <= 0 else f"{pct:.0f} %")
     sub = []
     if app.backend.state != "monitoring":
-        sub.append("čeká na měření")
+        sub.append(_("čeká na měření"))
     else:
         if app.cfg.control.source_mode == "wind":
             v = ctrl.speed_smoothed
-            sub.append("bez rychlosti z trenažéru" if v is None else f"vítr {v:.0f} km/h")
-            if ctrl.reason and not ctrl.reason.startswith(("vítr", "chybí rychlost")):
+            sub.append(_("bez rychlosti z trenažéru") if v is None else _("vítr {v:.0f} km/h").format(v=v))
+            if ctrl.reason and not ctrl.reason.startswith((_("vítr"), _("chybí rychlost"))):
                 sub.append(ctrl.reason)
         else:
             sub.append(ctrl.reason)
         if stepped:
             lv = pct_to_level(pct, n)
-            sub.append("vyp" if lv == 0 else f"stupeň {lv}")
+            sub.append(_("vyp") if lv == 0 else _("stupeň {lv}").format(lv=lv))
         act = app.fan_worker.actual_pct
         if not stepped and act is not None and abs(act - pct) > 10:
-            sub.append(f"ventilátor zatím na {act:.0f} %")
+            sub.append(_("ventilátor zatím na {act:.0f} %").format(act=act))
     app.t_fan["sub"].configure(text=" · ".join(sub))
     if stepped:
         app._last_pct_bar = None

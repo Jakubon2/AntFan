@@ -11,6 +11,7 @@ Bez powermetru (jen tepový pás) se počítá čas s tepem.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from .i18n import _
 
 BASE_INTERVAL_MIN = 15.0
 MIN_INTERVAL_MIN = 8.0
@@ -62,7 +63,7 @@ def parse_temp(text: str) -> float | None:
         return None
     v = float(t)
     if not 0 <= v <= 45:
-        raise ValueError("Teplota 0–45 °C.")
+        raise ValueError(_("Teplota 0–45 °C."))
     return v
 
 
@@ -73,7 +74,7 @@ def parse_interval(text: str) -> float:
         return 0.0
     v = float(t)
     if not 1 <= v <= 120:
-        raise ValueError("Interval 1–120 min.")
+        raise ValueError(_("Interval 1–120 min."))
     return v
 
 
@@ -85,7 +86,7 @@ class Reminder:
 
     @property
     def text(self) -> str:
-        return f"Napijte se · zhruba {self.ml} ml"
+        return _("Napijte se · zhruba {ml} ml").format(ml=self.ml)
 
 
 class DrinkTracker:
@@ -133,8 +134,7 @@ class DrinkTracker:
 
     def summary(self) -> str:
         """Krátký popis pro Nastavení."""
-        return f"Každých {self.interval_s() / 60:.0f} min, zhruba {self.next_amount()} ml " \
-               f"({self.ml_h():.0f} ml/h)"
+        return _("Každých {v:.0f} min, zhruba {v2} ml ({v3:.0f} ml/h)").format(v=self.interval_s() / 60, v2=self.next_amount(), v3=self.ml_h())
 
     # --- běh
     def update(self, now: float, monitoring: bool, power: float | None = None,

@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .ant_backend import FE_TYPE, HR_TYPE, PM_TYPE, FoundDevice, base_type, is_ble
+from .i18n import _, N_
 
 PAIR_SCAN_S = 20          # jak dlouho hledat
 APPEAR_AFTER_S = 3.0      # senzor, který se objevil až po této době, se „probudil“
@@ -28,8 +29,8 @@ HR_VALID = 30             # nižší tep = bez kontaktu
 HR_RISE = 12              # o kolik bpm musí tep stoupnout, aby to byla reakce
 NEAR_RSSI = -60           # dBm a víc = blízko (vlastní kolo)
 
-INSTRUCTION = ("Zašlapejte (aspoň pár otáček) a navlhčete tepový pás nebo se ho dotkněte. "
-               "Senzory, které zareagují, jsou vaše.")
+INSTRUCTION = (N_("Zašlapejte (aspoň pár otáček) a navlhčete tepový pás nebo se ho dotkněte. "
+               "Senzory, které zareagují, jsou vaše."))
 
 
 @dataclass
@@ -101,11 +102,11 @@ class PairingSession:
         elif bt in (PM_TYPE, FE_TYPE):
             reacted, reason = _power_reaction(tr.samples, late)
         if not reacted and late and all(s[1] is None for s in tr.samples):
-            reacted, reason = True, "objevil se až během hledání"
+            reacted, reason = True, _("objevil se až během hledání")
         if not reason:
-            reason = "nereaguje, nejspíš cizí" if not near else "blízko, ale nereaguje"
+            reason = _("nereaguje, nejspíš cizí") if not near else _("blízko, ale nereaguje")
         if near and reacted:
-            reason += ", silný signál"
+            reason += _(", silný signál")
         return Verdict(tr.dev, reacted, near, reason)
 
     def analyze(self, prefer_ble: bool = False) -> PairingResult:
@@ -124,13 +125,13 @@ def _hr_reaction(samples, late) -> tuple[bool, str]:
         return False, ""
     first_valid = valid[0][0]
     if any(v is not None and v < HR_VALID for v in vals[:first_valid]):
-        return True, "pás začal měřit"
+        return True, _("pás začal měřit")
     if late:
-        return True, "pás se probudil během hledání"
+        return True, _("pás se probudil během hledání")
     lo_i, lo = min(valid, key=lambda x: x[1])
     hi_after = max((v for i, v in valid if i > lo_i), default=lo)
     if hi_after - lo >= HR_RISE:
-        return True, f"tep stoupl o {hi_after - lo} bpm"
+        return True, _("tep stoupl o {v} bpm").format(v=hi_after - lo)
     return False, ""
 
 
@@ -151,9 +152,9 @@ def _power_reaction(samples, late) -> tuple[bool, str]:
         return False, ""
     idle_idx = next((i for i, s in enumerate(known) if (s[1] or 0) == 0 and (s[2] or 0) == 0), None)
     if idle_idx is not None and _moving(known[idle_idx:]):
-        return True, "výkon z 0 vyskočil"
+        return True, _("výkon z 0 vyskočil")
     if late and _moving(known):
-        return True, "probudil se šlapáním"
+        return True, _("probudil se šlapáním")
     return False, ""
 
 
@@ -175,7 +176,7 @@ def _only_one(cands) -> Verdict | None:
     phys = {(is_ble(v.device.device_type), v.device.device_id) for v in cands}
     if len(phys) == 1:
         v = max(cands, key=lambda v: base_type(v.device.device_type) == FE_TYPE)
-        v.reason = "jediný v dosahu (nereagoval)"
+        v.reason = _("jediný v dosahu (nereagoval)")
         return v
     return None
 
@@ -209,23 +210,23 @@ def _pick_power(verdicts, prefer_ble) -> Verdict | None:
 
 def _hints(verdicts, hr, power) -> list[str]:
     if not verdicts:
-        return ["Nenašel se žádný senzor. Zkontrolujte, že je ANT+ dongle zapojený (nebo zapnutý "
+        return [_("Nenašel se žádný senzor. Zkontrolujte, že je ANT+ dongle zapojený (nebo zapnutý "
                 "Bluetooth), pás nasazený a navlhčený a během hledání šlapejte, aby se powermetr "
-                "probudil. Pak to zkuste znovu."]
+                "probudil. Pak to zkuste znovu.")]
     out = []
     if not any(v.reacted for v in verdicts):
-        out.append("Žádný senzor nezareagoval. Hned po spuštění zašlapejte aspoň pár otáček a navlhčete "
-                   "pás. Pokud jsou senzory spárované s Rouvy přes Bluetooth, nemusí se AntFanu ukázat.")
+        out.append(_("Žádný senzor nezareagoval. Hned po spuštění zašlapejte aspoň pár otáček a navlhčete "
+                   "pás. Pokud jsou senzory spárované s Rouvy přes Bluetooth, nemusí se AntFanu ukázat."))
     if hr is None:
         if any(base_type(v.device.device_type) == HR_TYPE for v in verdicts):
-            out.append("Tepový pás nepoznám: v dosahu je víc pásů a žádný nezareagoval. Navlhčete "
-                       "elektrody, nasaďte pás a zkuste znovu, nebo ho vyberte ručně.")
+            out.append(_("Tepový pás nepoznám: v dosahu je víc pásů a žádný nezareagoval. Navlhčete "
+                       "elektrody, nasaďte pás a zkuste znovu, nebo ho vyberte ručně."))
         else:
-            out.append("Tepový pás se nenašel: navlhčete elektrody a nasaďte ho, bez kontaktu nevysílá.")
+            out.append(_("Tepový pás se nenašel: navlhčete elektrody a nasaďte ho, bez kontaktu nevysílá."))
     if power is None:
         if any(base_type(v.device.device_type) in (PM_TYPE, FE_TYPE) for v in verdicts):
-            out.append("Výkon nepoznám: v dosahu je víc powermetrů/trenažérů a žádný nezareagoval. "
-                       "Během hledání šlapejte, nebo vyberte senzor ručně.")
+            out.append(_("Výkon nepoznám: v dosahu je víc powermetrů/trenažérů a žádný nezareagoval. "
+                       "Během hledání šlapejte, nebo vyberte senzor ručně."))
         else:
-            out.append("Powermetr ani trenažér se nenašel: zašlapejte, probouzí se pohybem.")
+            out.append(_("Powermetr ani trenažér se nenašel: zašlapejte, probouzí se pohybem."))
     return out

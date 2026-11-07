@@ -15,6 +15,7 @@ from tkinter import ttk
 from . import coexist
 from . import config as config_mod
 from . import pairing
+from .i18n import _
 
 log = logging.getLogger("antfan.pairing")
 
@@ -73,7 +74,7 @@ class PairingUi:
         config_mod.save(self.cfg)
         self.pair_result = None
         self._render_pair_box()
-        self.lbl_scan.configure(text="Výběr uložen: " + ", ".join(
+        self.lbl_scan.configure(text=_("Výběr uložen: ") + ", ".join(
             f"{d.type_name} #{d.device_id}" for d in res.selected))
         self._refresh_tree()
         self._coex_refresh()
@@ -87,7 +88,7 @@ class PairingUi:
             return
         try:
             left = max(0, int(pairing.PAIR_SCAN_S - (time.monotonic() - self.pairing.t0)))
-            self.lbl_pair_title.configure(text=f"Hledám vaše senzory… {left} s")
+            self.lbl_pair_title.configure(text=_("Hledám vaše senzory… {left} s").format(left=left))
         except tk.TclError:
             pass
         self.root.after(500, self._pair_tick)
@@ -131,35 +132,35 @@ class PairingUi:
 
         btns = tk.Frame(box, bg=A.SURFACE)
         if self.pairing is not None:
-            self.lbl_pair_title = lbl(f"Hledám vaše senzory… {pairing.PAIR_SCAN_S} s",
+            self.lbl_pair_title = lbl(_("Hledám vaše senzory… {PAIR_SCAN_S} s").format(PAIR_SCAN_S=pairing.PAIR_SCAN_S),
                                       font=self.fonts.body_b)
-            lbl(pairing.INSTRUCTION)
-            ttk.Button(btns, text="Zrušit", command=self.on_pair_cancel).pack(side="left")
+            lbl(_(pairing.INSTRUCTION))
+            ttk.Button(btns, text=_("Zrušit"), command=self.on_pair_cancel).pack(side="left")
         elif self.pair_error:
-            lbl("Hledání se nepovedlo", fg=A.BAD, font=self.fonts.body_b)
+            lbl(_("Hledání se nepovedlo"), fg=A.BAD, font=self.fonts.body_b)
             lbl(self.pair_error, fg=A.MUTED)
-            ttk.Button(btns, text="Zkusit znovu", command=self.on_pair).pack(side="left")
-            ttk.Button(btns, text="Zavřít", command=self.on_pair_cancel).pack(side="left", padx=6)
+            ttk.Button(btns, text=_("Zkusit znovu"), command=self.on_pair).pack(side="left")
+            ttk.Button(btns, text=_("Zavřít"), command=self.on_pair_cancel).pack(side="left", padx=6)
         else:
             if res.ok:
-                lbl("Vaše senzory", font=self.fonts.body_b)
+                lbl(_("Vaše senzory"), font=self.fonts.body_b)
                 for line in res.summary_lines():
                     lbl(line)
             else:
-                lbl("Vaše senzory se nepodařilo poznat", fg=A.BAD, font=self.fonts.body_b)
+                lbl(_("Vaše senzory se nepodařilo poznat"), fg=A.BAD, font=self.fonts.body_b)
             chosen = {d.key for d in res.selected}
             others = [v for v in res.verdicts if v.device.key not in chosen and not v.reacted]
             if others:
-                lbl("Nereagují, nejspíš patří sousedům: " + ", ".join(
+                lbl(_("Nereagují, nejspíš patří sousedům: ") + ", ".join(
                     f"{v.device.type_name} #{v.device.device_id}" for v in others), fg=A.MUTED)
             for h in res.hints:
                 lbl(h, fg=A.MUTED)
             if res.ok:
-                ttk.Button(btns, text="Použít", command=self.on_pair_apply).pack(side="left")
-                ttk.Button(btns, text="Zkusit znovu", command=self.on_pair).pack(side="left", padx=6)
+                ttk.Button(btns, text=_("Použít"), command=self.on_pair_apply).pack(side="left")
+                ttk.Button(btns, text=_("Zkusit znovu"), command=self.on_pair).pack(side="left", padx=6)
             else:
-                ttk.Button(btns, text="Zkusit znovu", command=self.on_pair).pack(side="left")
-            ttk.Button(btns, text="Zavřít", command=self.on_pair_cancel).pack(side="left", padx=6)
+                ttk.Button(btns, text=_("Zkusit znovu"), command=self.on_pair).pack(side="left")
+            ttk.Button(btns, text=_("Zavřít"), command=self.on_pair_cancel).pack(side="left", padx=6)
         btns.pack(fill="x", padx=12, pady=(8, 10))
 
     # ============================================================ souběh
@@ -230,13 +231,13 @@ class PairingUi:
         if {d.key for d in new} == {d.key for d in sel}:
             if rescan and self.backend.state != "scanning":
                 self._coex_switch_after_scan = True
-                self.coex_note = "Hledám Bluetooth verze senzorů…"
+                self.coex_note = _("Hledám Bluetooth verze senzorů…")
                 self._render_coex_page()
                 self.on_scan()
                 return
-            self.coex_note = ("Bluetooth verze vybraných senzorů nejsou vidět. Zapněte Bluetooth, "
+            self.coex_note = (_("Bluetooth verze vybraných senzorů nejsou vidět. Zapněte Bluetooth, "
                               "odpojte senzory od Rouvy na Bluetooth a vyberte senzory (BT) ručně "
-                              "v Senzorech.")
+                              "v Senzorech."))
         else:
             running = self.backend.state in ("monitoring", "unplugged")
             for d in new:
@@ -244,9 +245,9 @@ class PairingUi:
             self.selected = {d.key for d in new}
             self.cfg.selected = [[d.device_id, d.device_type, d.trans_type] for d in new]
             config_mod.save(self.cfg)
-            self.coex_note = "Vybráno: " + ", ".join(f"{d.type_name} #{d.device_id}" for d in new)
+            self.coex_note = _("Vybráno: ") + ", ".join(f"{d.type_name} #{d.device_id}" for d in new)
             if missing:
-                self.coex_note += (". Bez Bluetooth verze zůstává: " + ", ".join(
+                self.coex_note += (_(". Bez Bluetooth verze zůstává: ") + ", ".join(
                     f"{d.type_name} #{d.device_id}" for d in missing))
             self._refresh_tree()
             if running:
@@ -275,28 +276,28 @@ class PairingUi:
         adv = self.coex_advice
         tk.Label(bar, text=adv.short, bg=A.SURFACE, fg=A.TEXT, font=self.fonts.body,
                  anchor="w").pack(side="left", padx=(12, 8), pady=6)
-        close = tk.Label(bar, text="Zavřít", bg=A.SURFACE, fg=A.MUTED, font=self.fonts.small,
+        close = tk.Label(bar, text=_("Zavřít"), bg=A.SURFACE, fg=A.MUTED, font=self.fonts.small,
                          cursor="hand2")
         close.pack(side="right", padx=(6, 12))
         close.bind("<Button-1>", lambda e: self.on_coex_close())
-        ttk.Button(bar, text="Více", command=lambda: self.open_settings("coexist")).pack(side="right")
+        ttk.Button(bar, text=_("Více"), command=lambda: self.open_settings("coexist")).pack(side="right")
         if adv.kind == "antfan_bt":
-            ttk.Button(bar, text="Přepnout na Bluetooth senzory",
+            ttk.Button(bar, text=_("Přepnout na Bluetooth senzory"),
                        command=self.on_coex_switch).pack(side="right", padx=6)
         bar.pack(fill="x", padx=14, pady=(0, 10))
 
     def _page_coexist(self, p):
         A = _c()
-        self._page_head(p, "Souběh s Rouvy", "Jak jet zároveň s Rouvy, Zwiftem, TrainerRoad nebo "
-                                             "MyWhoosh. Jeden ANT+ dongle může mít jen jeden program.")
+        self._page_head(p, _("Souběh s Rouvy"), _("Jak jet zároveň s Rouvy, Zwiftem, TrainerRoad nebo "
+                                             "MyWhoosh. Jeden ANT+ dongle může mít jen jeden program."))
         self.coex_page = tk.Frame(p, bg=A.BG)
         self.coex_page.pack(fill="x")
-        ttk.Checkbutton(p, text="Upozornit, když běží Rouvy a podobné aplikace",
+        ttk.Checkbutton(p, text=_("Upozornit, když běží Rouvy a podobné aplikace"),
                         variable=self.coex_guide_var,
                         command=self.on_coex_guide_toggle).pack(anchor="w", pady=(12, 0))
         wrap = int(440 * self.px)
-        self._lbl(p, "Možnosti: (a) dva ANT+ dongly, každý program má svůj; (b) Rouvy na ANT+, AntFan "
-                     "na Bluetooth; (c) Rouvy na Bluetooth, AntFan na ANT+. " + coexist.BT_LIMIT,
+        self._lbl(p, _("Možnosti: (a) dva ANT+ dongly, každý program má svůj; (b) Rouvy na ANT+, AntFan "
+                     "na Bluetooth; (c) Rouvy na Bluetooth, AntFan na ANT+. ") + _(coexist.BT_LIMIT),
                   anchor="w", justify="left", wraplength=wrap).pack(fill="x", pady=(10, 0))
         self._render_coex_page()
 
@@ -310,13 +311,13 @@ class PairingUi:
         wrap = int(440 * self.px)
         adv = self.coex_advice
         if adv is None:
-            text = "Teď neběží žádná známá tréninková aplikace a dongle nikdo jiný nedrží."
+            text = _("Teď neběží žádná známá tréninková aplikace a dongle nikdo jiný nedrží.")
         else:
             text = adv.text
         tk.Label(box, text=text, bg=A.BG, fg=A.TEXT, font=self.fonts.body, anchor="w",
                  justify="left", wraplength=wrap).pack(fill="x")
         if adv is not None and adv.kind == "antfan_bt":
-            ttk.Button(box, text="Přepnout na Bluetooth senzory",
+            ttk.Button(box, text=_("Přepnout na Bluetooth senzory"),
                        command=self.on_coex_switch).pack(anchor="w", pady=(8, 0))
         if self.coex_note:
             tk.Label(box, text=self.coex_note, bg=A.BG, fg=A.MUTED, font=self.fonts.body, anchor="w",

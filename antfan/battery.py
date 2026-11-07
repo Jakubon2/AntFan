@@ -15,11 +15,12 @@ Do fronty jde ("battery", key, pct_nebo_None, stav_nebo_None) jen při změně.
 from __future__ import annotations
 
 import threading
+from .i18n import _, N_
 
 HR_TYPE = 120
 
 NEW, GOOD, OK, LOW, CRITICAL = 1, 2, 3, 4, 5
-STATUS_NAMES = {NEW: "nová", GOOD: "dobrá", OK: "OK", LOW: "slabá", CRITICAL: "kritická"}
+STATUS_NAMES = {NEW: N_("nová"), GOOD: N_("dobrá"), OK: "OK", LOW: N_("slabá"), CRITICAL: N_("kritická")}
 DEFAULT_PCT = 20
 
 
@@ -78,7 +79,7 @@ def is_low(pct: int | None, status: int | None, level: int = LOW, pct_limit: int
 def text(pct: int | None, status: int | None) -> str:
     if pct is not None:
         return f"{pct} %"
-    return STATUS_NAMES.get(status, "") if status is not None else ""
+    return _(STATUS_NAMES.get(status, "")) if status is not None else ""
 
 
 # --- pro simulaci -----------------------------------------------------------

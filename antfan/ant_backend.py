@@ -31,13 +31,14 @@ from dataclasses import dataclass
 from . import usb_diag
 from .battery import BatteryTracker, page_common, page_hr
 from .rx import GapClassifier, RxMonitor, decode_speed
+from .i18n import _, N_
 
 log = logging.getLogger("antfan.ant")
 
 HR_TYPE = 120
 PM_TYPE = 11
 FE_TYPE = 17  # chytrý trenažér (ANT+ FE-C) – AntFan ho jen poslouchá, neovládá
-SUPPORTED_TYPES = {HR_TYPE: "Tepový pás", PM_TYPE: "Powermetr", FE_TYPE: "Trenažér"}
+SUPPORTED_TYPES = {HR_TYPE: N_("Tepový pás"), PM_TYPE: N_("Powermetr"), FE_TYPE: N_("Trenažér")}
 POWER_TYPES = (PM_TYPE, FE_TYPE)
 MAX_CHANNELS = 8
 # Bluetooth senzory (ble_backend.py) mají typ posunutý o BLE_OFFSET: 1120 = tepový pás přes BT
@@ -72,23 +73,24 @@ class FoundDevice:
 
     @property
     def type_name(self) -> str:
-        name = SUPPORTED_TYPES.get(base_type(self.device_type), f"typ {self.device_type}")
+        name = SUPPORTED_TYPES.get(base_type(self.device_type))
+        name = _(name) if name else _("typ {device_type}").format(device_type=self.device_type)
         return f"{name} (BT)" if is_ble(self.device_type) else name
 
 
 def _friendly_error(e: Exception) -> str:
     if isinstance(e, usb_diag.DongleMissing) or type(e).__name__ == "DriverNotFound":
         if sys.platform == "darwin":  # na Macu se ovladač neinstaluje
-            return "ANT+ dongle nenalezen. Je zapojený? Zkuste jiný USB port nebo redukci."
+            return _("ANT+ dongle nenalezen. Je zapojený? Zkuste jiný USB port nebo redukci.")
         return (
-            "ANT+ dongle nenalezen. Je zapojený? Má ovladač libusbK nebo WinUSB "
-            "(viz README)?"
+            _("ANT+ dongle nenalezen. Je zapojený? Má ovladač libusbK nebo WinUSB "
+            "(viz README)?")
         )
     if isinstance(e, usb_diag.DongleBusy) or usb_diag.is_busy_error(e):
         apps, antfans = usb_diag.find_blocking_processes()
         return usb_diag.busy_message(apps, antfans)
     if type(e).__name__ == "NoBackendError":
-        return "Chybí knihovna libusb (pip install libusb-package)."
+        return _("Chybí knihovna libusb (pip install libusb-package).")
     return f"{type(e).__name__}: {e}"
 
 
@@ -158,7 +160,7 @@ class AntBackend:
                     self._teardown()
                     self._last_monitor = None
                     self.state = "idle"
-                    self._status("Zastaveno")
+                    self._status(_("Zastaveno"))
                 elif kind == "scan":
                     self._last_monitor = None
                     pending = self._do_scan(cmd[1])
@@ -202,24 +204,24 @@ class AntBackend:
                     self._teardown()
                     self.state = "idle"
                     self._last_monitor = None
-                    self.events.put(("ant_error", "Spojení s ANT+ donglem se přerušilo a dongle "
-                                     "teď nejde otevřít.\n\n" + _friendly_error(e)))
+                    self.events.put(("ant_error", _("Spojení s ANT+ donglem se přerušilo a dongle "
+                                     "teď nejde otevřít.\n\n") + _friendly_error(e)))
                     return
             self.state = "unplugged"
             self._unplug_check = 0.0
-            self._status("Dongle byl odpojen – zapojte ho znovu, měření se obnoví samo")
+            self._status(_("Dongle byl odpojen – zapojte ho znovu, měření se obnoví samo"))
         elif self.state == "unplugged" and time.monotonic() - self._unplug_check >= 4.0:
             self._unplug_check = time.monotonic()
             if usb_diag.dongle_present():
                 time.sleep(1.5)  # Windows potřebuje chvíli na načtení ovladače
-                self._status("Dongle je znovu zapojený, obnovuji měření…")
+                self._status(_("Dongle je znovu zapojený, obnovuji měření…"))
                 self._do_monitor(self._last_monitor or [])
 
     def _do_reset(self):
         resume = self._last_monitor if self.state in ("monitoring", "unplugged") else None
         self._teardown()
         self.state = "idle"
-        self._status("Resetuji dongle…")
+        self._status(_("Resetuji dongle…"))
         msg = usb_diag.usb_reset()
         time.sleep(2.0)
         self._status(msg)
@@ -236,8 +238,8 @@ class AntBackend:
             raise usb_diag.DongleMissing()
         last: Exception | None = None
         for attempt in range(1, attempts + 1):
-            self._status("Připojuji ANT+ dongle…" if attempt == 1 else
-                         f"Dongle nejde otevřít, zkouším znovu ({attempt}/{attempts})…")
+            self._status(_("Připojuji ANT+ dongle…") if attempt == 1 else
+                         _("Dongle nejde otevřít, zkouším znovu ({attempt}/{attempts})…").format(attempt=attempt, attempts=attempts))
             node = None
             try:
                 node = Node()
@@ -396,7 +398,7 @@ class AntBackend:
         ch.set_rf_freq(57)
         ch.open_rx_scan_mode()
         self.state = "scanning"
-        self._status(f"Vyhledávám senzory ({int(duration)} s)…")
+        self._status(_("Vyhledávám senzory ({v} s)…").format(v=int(duration)))
 
         end = time.monotonic() + duration
         next_cmd = None
@@ -413,7 +415,7 @@ class AntBackend:
         self.state = "idle"
         log.info("Sken %.0f s – zprávy podle zařízení (ID, typ): %s", duration,
                  ", ".join(f"#{i} typ {t}: {n}" for (i, t), n in sorted(counts.items())) or "žádné")
-        self._status(f"Vyhledávání dokončeno – nalezeno {len(seen)} senzorů")
+        self._status(_("Vyhledávání dokončeno – nalezeno {v} senzorů").format(v=len(seen)))
         self.events.put(("scan_done",))
         return next_cmd
 
@@ -425,7 +427,7 @@ class AntBackend:
         devices = [d for d in devices if d.device_type in SUPPORTED_TYPES][:MAX_CHANNELS]
         self._last_monitor = devices
         if not devices:
-            self._status("Nevybrán žádný senzor")
+            self._status(_("Nevybrán žádný senzor"))
             return
         node = self._open_node(attempts)
 
@@ -466,7 +468,7 @@ class AntBackend:
         self._rx = rx
         self.state = "monitoring"
         names = ", ".join(f"{d.type_name} #{d.device_id}" for d in devices)
-        self._status(f"Měřím: {names}")
+        self._status(_("Měřím: {names}").format(names=names))
 
 
 class SimulatedBackend:
@@ -521,7 +523,7 @@ class SimulatedBackend:
     def start_scan(self, duration: float) -> None:
         gen = self._new_gen()
         self.state = "scanning"
-        self._status(f"[SIMULACE] Vyhledávám senzory ({int(duration)} s)…")
+        self._status(_("[SIMULACE] Vyhledávám senzory ({v} s)…").format(v=int(duration)))
 
         def run():
             t0 = time.monotonic()
@@ -535,7 +537,7 @@ class SimulatedBackend:
                 time.sleep(0.5)
             if self._alive(gen):
                 self.state = "idle"
-                self._status(f"[SIMULACE] Vyhledávání dokončeno – nalezeno {len(self.SIM_DEVICES)} senzorů")
+                self._status(_("[SIMULACE] Vyhledávání dokončeno – nalezeno {v} senzorů").format(v=len(self.SIM_DEVICES)))
                 self.events.put(("scan_done",))
 
         threading.Thread(target=run, daemon=True).start()
@@ -544,7 +546,7 @@ class SimulatedBackend:
         gen = self._new_gen()
         devices = list(devices)[:MAX_CHANNELS]
         self.state = "monitoring"
-        self._status("[SIMULACE] Měřím: " + ", ".join(f"{d.type_name} #{d.device_id}" for d in devices))
+        self._status(_("[SIMULACE] Měřím: ") + ", ".join(f"{d.type_name} #{d.device_id}" for d in devices))
         t_start = time.monotonic()
         self._rx = {d.key: RxMonitor(d.device_id, d.device_type, t_start) for d in devices}
         self._gaps = GapClassifier()
@@ -630,10 +632,10 @@ class SimulatedBackend:
         self._new_gen()
         self.state = "idle"
         self._rx = {}
-        self._status("[SIMULACE] Zastaveno")
+        self._status(_("[SIMULACE] Zastaveno"))
 
     def reset(self) -> None:
-        self._status("[SIMULACE] Dongle resetován")
+        self._status(_("[SIMULACE] Dongle resetován"))
 
     def shutdown(self) -> None:
         self._new_gen()

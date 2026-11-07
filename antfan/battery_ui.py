@@ -11,6 +11,7 @@ from tkinter import ttk
 
 from . import battery as bat
 from . import config as config_mod
+from .i18n import _
 
 
 def _c(name: str) -> str:
@@ -37,7 +38,7 @@ class BatteryUIMixin:
         return bat.text(*st) if st else ""
 
     def _batt_on_event(self, ev):
-        _, key, pct, status = ev
+        _u, key, pct, status = ev
         self.battery[key] = (pct, status)
         self._batt_check()
 
@@ -53,8 +54,8 @@ class BatteryUIMixin:
             d = self.devices.get(k)
             name = f"{d.type_name} #{d.device_id}" if d else f"#{k[0]}"
             names.append(f"{name} ({self.batt_text(k)})")
-        self._batt_bar_text = ("Slabá baterie: " + ", ".join(names) +
-                               ". Vyměňte ji nebo nabijte před další jízdou.")
+        self._batt_bar_text = (_("Slabá baterie: ") + ", ".join(names) +
+                               _(". Vyměňte ji nebo nabijte před další jízdou."))
         self._batt_show_bar()
 
     # ------------------------------------------------------------- okno jízdy
@@ -66,7 +67,7 @@ class BatteryUIMixin:
         self.batt_lbl = tk.Label(self.batt_bar, text="", bg=_c("SURFACE"), fg=_c("BAD"),
                                  font=f.body, anchor="w", justify="left")
         self.batt_lbl.pack(side="left", fill="x", expand=True, padx=(16, 8), pady=6)
-        close = tk.Label(self.batt_bar, text="Skrýt", bg=_c("SURFACE"), fg=_c("MUTED"),
+        close = tk.Label(self.batt_bar, text=_("Skrýt"), bg=_c("SURFACE"), fg=_c("MUTED"),
                          font=f.small, cursor="hand2")
         close.pack(side="right", padx=14)
         close.bind("<Button-1>", lambda e: self._batt_hide_bar())
@@ -93,22 +94,22 @@ class BatteryUIMixin:
         box = tk.Frame(p, bg=_c("BG"))
         box.pack(fill="x", pady=(12, 0))
         self._batt_var = tk.BooleanVar(value=c.battery_warn)
-        ttk.Checkbutton(box, text="Upozornit na slabou baterii", variable=self._batt_var,
+        ttk.Checkbutton(box, text=_("Upozornit na slabou baterii"), variable=self._batt_var,
                         command=self._batt_save).pack(anchor="w")
         row = tk.Frame(box, bg=_c("BG"))
         row.pack(fill="x", pady=(4, 0))
-        tk.Label(row, text="Hranice:", bg=_c("BG"), fg=_c("MUTED"), font=self.fonts.small).pack(side="left")
+        tk.Label(row, text=_("Hranice:"), bg=_c("BG"), fg=_c("MUTED"), font=self.fonts.small).pack(side="left")
         self._batt_level_var = tk.IntVar(value=c.battery_warn_level)
-        for val, t in ((bat.LOW, "slabá"), (bat.CRITICAL, "kritická")):
+        for val, t in ((bat.LOW, _("slabá")), (bat.CRITICAL, _("kritická"))):
             ttk.Radiobutton(row, text=t, value=val, variable=self._batt_level_var,
                             command=self._batt_save).pack(side="left", padx=(8, 0))
-        tk.Label(row, text="nebo pod", bg=_c("BG"), fg=_c("MUTED"),
+        tk.Label(row, text=_("nebo pod"), bg=_c("BG"), fg=_c("MUTED"),
                  font=self.fonts.small).pack(side="left", padx=(14, 6))
         self._batt_pct_entry = ttk.Entry(row, width=4, justify="center")
         self._batt_pct_entry.insert(0, str(c.battery_warn_pct))
         self._batt_pct_entry.bind("<KeyRelease>", lambda e: self._batt_save())
         self._batt_pct_entry.pack(side="left")
-        tk.Label(row, text="% u senzorů, které posílají procenta", bg=_c("BG"), fg=_c("MUTED"),
+        tk.Label(row, text=_("% u senzorů, které posílají procenta"), bg=_c("BG"), fg=_c("MUTED"),
                  font=self.fonts.small).pack(side="left", padx=(6, 0))
 
     def _batt_save(self):

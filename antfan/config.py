@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .controller import ControlConfig
 from .miio_fan import FanConfig
+from .i18n import _, N_
 
 log = logging.getLogger("antfan.config")
 
@@ -30,7 +31,7 @@ def app_dir() -> Path:
     return d
 
 
-DEFAULT_PROFILE = "Výchozí"
+DEFAULT_PROFILE = N_("Výchozí")
 
 
 @dataclass
@@ -44,6 +45,7 @@ class AppConfig:
     simulation: bool = False
     auto_mode: bool = True
     theme: str = "system"  # light | dark | system
+    language: str = "auto"  # auto | cs | en (i18n.py)
     web_autostart: bool = False  # ovládání z mobilu zapnout hned po spuštění
     web_port: int = 8686
     web_key: str = ""  # tajná část adresy /m/<klíč>

@@ -11,7 +11,8 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from . import config as config_mod
-from .config import AppConfig
+from .config import DEFAULT_PROFILE, AppConfig
+from .i18n import _
 
 MAX_NAME = 30
 
@@ -24,9 +25,9 @@ def validate_name(cfg: AppConfig, name: str, old: str | None = None) -> str:
     """Vrátí upravené jméno, nebo vyhodí ValueError s českou hláškou."""
     name = _clean(name)
     if not name:
-        raise ValueError("Zadejte jméno profilu.")
+        raise ValueError(_("Zadejte jméno profilu."))
     if name != old and name in cfg.profiles:
-        raise ValueError(f"Profil „{name}“ už existuje.")
+        raise ValueError(_("Profil „{name}“ už existuje.").format(name=name))
     return name
 
 
@@ -51,7 +52,7 @@ def rename(cfg: AppConfig, old: str, new: str) -> str:
 
 def delete(cfg: AppConfig, name: str) -> None:
     if len(cfg.profiles) <= 1:
-        raise ValueError("Poslední profil smazat nejde.")
+        raise ValueError(_("Poslední profil smazat nejde."))
     names = list(cfg.profiles)
     idx = names.index(name)
     del cfg.profiles[name]
@@ -95,14 +96,14 @@ def ask_name(app, title: str, prompt: str, initial: str = "") -> str | None:
 
     def ok(_e=None):
         if not _clean(e.get()):
-            err.configure(text="Zadejte jméno profilu.")
+            err.configure(text=_("Zadejte jméno profilu."))
             return
         result[0] = e.get()
         w.destroy()
 
     bf = tk.Frame(box, bg=A.BG)
     bf.pack(fill="x", pady=(8, 0))
-    ttk.Button(bf, text="Zrušit", command=w.destroy).pack(side="right")
+    ttk.Button(bf, text=_("Zrušit"), command=w.destroy).pack(side="right")
     ttk.Button(bf, text="OK", command=ok).pack(side="right", padx=8)
     e.bind("<Return>", ok)
     w.bind("<Escape>", lambda _e: w.destroy())
@@ -121,6 +122,11 @@ def ask_name(app, title: str, prompt: str, initial: str = "") -> str | None:
     return result[0]
 
 
+def profile_label(name: str) -> str:
+    """Jméno profilu k zobrazení; výchozí profil se překládá."""
+    return _(name) if name == DEFAULT_PROFILE else name
+
+
 class ProfilesMixin:
     """Metody App pro profily. Stav je v self.cfg, widgety se dají kdykoli přestavět."""
 
@@ -134,10 +140,10 @@ class ProfilesMixin:
             m = tk.Menu(lb, tearoff=0, bg=A.SURFACE, fg=A.TEXT, activebackground=A.ACCENT_BG,
                         activeforeground=A.ACCENT, font=self.fonts.body)
             for name in self.cfg.profiles:
-                m.add_radiobutton(label=name, value=name, variable=self._profile_var,
+                m.add_radiobutton(label=profile_label(name), value=name, variable=self._profile_var,
                                   command=lambda n=name: self.on_profile(n))
             m.add_separator()
-            m.add_command(label="Spravovat profily…", command=lambda: self.open_settings("control"))
+            m.add_command(label=_("Spravovat profily…"), command=lambda: self.open_settings("control"))
             try:
                 m.tk_popup(lb.winfo_rootx(), lb.winfo_rooty() + lb.winfo_height())
             finally:
@@ -154,7 +160,7 @@ class ProfilesMixin:
         self._profile_labels = [w for w in getattr(self, "_profile_labels", []) if w.winfo_exists()]
         if not hasattr(self, "_profile_var"):
             self._profile_var = tk.StringVar(value=self.cfg.active_profile)
-        self.lbl_profile_bar = self._profile_menu(top, self.fonts.body, A.MUTED, A.BG, prefix="Profil: ")
+        self.lbl_profile_bar = self._profile_menu(top, self.fonts.body, A.MUTED, A.BG, prefix=_("Profil: "))
         self.lbl_profile_bar.pack(side="right", padx=(0, 10))
         self._update_profile_labels()
 
@@ -166,15 +172,15 @@ class ProfilesMixin:
             self._profile_var = tk.StringVar(value=self.cfg.active_profile)
         row = tk.Frame(p, bg=A.BG)
         row.pack(fill="x", pady=(0, 12))
-        ttk.Label(row, text="Profil").pack(side="left", padx=(0, 8))
+        ttk.Label(row, text=_("Profil")).pack(side="left", padx=(0, 8))
         field = tk.Frame(row, bg=A.BORDER, padx=1, pady=1)
         field.pack(side="left")
         self.lbl_profile_set = self._profile_menu(field, self.fonts.body_b, A.TEXT, A.SURFACE)
         self.lbl_profile_set.configure(padx=10, pady=3, anchor="w", width=16)
         self.lbl_profile_set.pack()
-        ttk.Button(row, text="Nový", command=self.on_profile_new).pack(side="left", padx=(10, 0))
-        ttk.Button(row, text="Přejmenovat", command=self.on_profile_rename).pack(side="left", padx=(6, 0))
-        self.btn_profile_del = ttk.Button(row, text="Smazat", command=self.on_profile_delete)
+        ttk.Button(row, text=_("Nový"), command=self.on_profile_new).pack(side="left", padx=(10, 0))
+        ttk.Button(row, text=_("Přejmenovat"), command=self.on_profile_rename).pack(side="left", padx=(6, 0))
+        self.btn_profile_del = ttk.Button(row, text=_("Smazat"), command=self.on_profile_delete)
         self.btn_profile_del.pack(side="left", padx=(6, 0))
         self._update_profile_labels()
 
@@ -183,7 +189,7 @@ class ProfilesMixin:
         self._profile_var.set(name)
         for lb in getattr(self, "_profile_labels", []):
             if lb.winfo_exists():
-                lb.configure(text=f"{getattr(lb, '_antfan_prefix', '')}{name} ▾")
+                lb.configure(text=f"{getattr(lb, '_antfan_prefix', '')}{profile_label(name)} ▾")
         btn = getattr(self, "btn_profile_del", None)
         if btn is not None and btn.winfo_exists():
             btn.state(["disabled"] if len(self.cfg.profiles) <= 1 else ["!disabled"])
@@ -236,7 +242,7 @@ class ProfilesMixin:
         self.lbl_beh_err.configure(text="")
 
     def on_profile_new(self):
-        name = ask_name(self, "Nový profil", "Jméno nového profilu (zkopíruje se aktuální nastavení):")
+        name = ask_name(self, _("Nový profil"), _("Jméno nového profilu (zkopíruje se aktuální nastavení):"))
         if name is None:
             return
         self.on_apply()
@@ -249,7 +255,7 @@ class ProfilesMixin:
 
     def on_profile_rename(self):
         old = self.cfg.active_profile
-        name = ask_name(self, "Přejmenovat profil", "Nové jméno profilu:", old)
+        name = ask_name(self, _("Přejmenovat profil"), _("Nové jméno profilu:"), old)
         if name is None:
             return
         try:
@@ -264,7 +270,7 @@ class ProfilesMixin:
         name = self.cfg.active_profile
         if len(self.cfg.profiles) <= 1:
             return
-        if not messagebox.askyesno("AntFan", f"Smazat profil „{name}“?", parent=self.settings):
+        if not messagebox.askyesno("AntFan", _("Smazat profil „{name}“?").format(name=name), parent=self.settings):
             return
         delete(self.cfg, name)
         self._profile_switched()

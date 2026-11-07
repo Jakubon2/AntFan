@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from .i18n import _
 
 log = logging.getLogger("antfan.fan")
 
@@ -46,9 +47,9 @@ class MiioClient:
         try:
             self.token = bytes.fromhex(token_hex)
         except ValueError as e:
-            raise MiioError("Token musí být 32 hexadecimálních znaků") from e
+            raise MiioError(_("Token musí být 32 hexadecimálních znaků")) from e
         if len(self.token) != 16:
-            raise MiioError("Token musí mít 32 hexadecimálních znaků (16 bajtů)")
+            raise MiioError(_("Token musí mít 32 hexadecimálních znaků (16 bajtů)"))
         self.ip = ip.strip()
         self.timeout = timeout
         self._key = _md5(self.token)
@@ -80,15 +81,15 @@ class MiioClient:
 
     def parse_packet(self, data: bytes) -> tuple[int, int, bytes]:
         if len(data) < 32:
-            raise MiioError("Příliš krátká odpověď")
+            raise MiioError(_("Příliš krátká odpověď"))
         magic, length, _unk, did, stamp = struct.unpack(">HHIII", data[:16])
         if magic != 0x2131:
-            raise MiioError("Neplatná odpověď (magic)")
+            raise MiioError(_("Neplatná odpověď (magic)"))
         body = data[32:length]
         if body:
             expected = _md5(data[:16] + self.token + body)
             if expected != data[16:32]:
-                raise MiioError("Neplatný kontrolní součet – špatný token?")
+                raise MiioError(_("Neplatný kontrolní součet – špatný token?"))
         return did, stamp, body
 
     def _socket(self) -> socket.socket:
@@ -100,13 +101,13 @@ class MiioClient:
         with self._socket() as s:
             try:
                 s.sendto(HELLO, (self.ip, MIIO_PORT))
-                data, _ = s.recvfrom(1024)
+                data, _u = s.recvfrom(1024)
             except socket.timeout as e:
                 raise MiioError(
-                    f"Ventilátor na {self.ip} neodpovídá (zkontrolujte IP a Wi-Fi)"
+                    _("Ventilátor na {ip} neodpovídá (zkontrolujte IP a Wi-Fi)").format(ip=self.ip)
                 ) from e
             except OSError as e:
-                raise MiioError(f"Síťová chyba: {e}") from e
+                raise MiioError(_("Síťová chyba: {e}").format(e=e)) from e
         _magic, _len, _unk, did, stamp = struct.unpack(">HHIII", data[:16])
         self._did = did
         self._stamp = stamp
@@ -126,7 +127,7 @@ class MiioClient:
                 s.sendto(packet, (self.ip, MIIO_PORT))
                 deadline = time.monotonic() + self.timeout
                 while True:
-                    data, _ = s.recvfrom(4096)
+                    data, _u = s.recvfrom(4096)
                     _did, stamp, body = self.parse_packet(data)
                     self._stamp = stamp
                     if not body:
@@ -134,7 +135,7 @@ class MiioClient:
                     try:
                         text = self.decrypt(body)
                     except ValueError as e:
-                        raise MiioError("Nelze dešifrovat odpověď – špatný token?") from e
+                        raise MiioError(_("Nelze dešifrovat odpověď – špatný token?")) from e
                     text = text.rstrip(b"\x00")
                     resp = json.loads(text.decode("utf-8", errors="replace"))
                     if resp.get("id") != msg_id and time.monotonic() < deadline:
@@ -143,13 +144,13 @@ class MiioClient:
             except socket.timeout as e:
                 self._did = None  # příště znovu handshake
                 raise MiioError(
-                    "Ventilátor neodpověděl na příkaz (špatný token nebo nedostupný)"
+                    _("Ventilátor neodpověděl na příkaz (špatný token nebo nedostupný)")
                 ) from e
             except OSError as e:
                 self._did = None
-                raise MiioError(f"Síťová chyba: {e}") from e
+                raise MiioError(_("Síťová chyba: {e}").format(e=e)) from e
         if "error" in resp:
-            raise MiioError(f"Ventilátor vrátil chybu: {resp['error']}")
+            raise MiioError(_("Ventilátor vrátil chybu: {v}").format(v=resp['error']))
         return resp.get("result")
 
 
@@ -183,7 +184,7 @@ class FanConfig:
 
 def _device_error(e: Exception) -> bool:
     """Chyba vrácená ventilátorem (příkaz nepodporuje), ne síťová chyba."""
-    return isinstance(e, MiioError) and "vrátil chybu" in str(e)
+    return isinstance(e, MiioError) and _("vrátil chybu") in str(e)
 
 
 class XiaomiFan:
@@ -223,7 +224,7 @@ class XiaomiFan:
         c.model = model
         if model in LEGACY:
             self._prof = ("legacy", LEGACY[model])
-            self.note = f"model {model} (starší protokol, neověřeno)"
+            self.note = _("model {model} (starší protokol, neověřeno)").format(model=model)
         elif model in PRESETS:
             self._prof = PRESETS[model]
             self.note = f"model {model}"
@@ -231,10 +232,10 @@ class XiaomiFan:
             prof = spec_lookup(model) if model else None
             if prof:
                 self._prof = prof
-                self.note = f"model {model} (podle specifikace MIoT, neověřeno)"
+                self.note = _("model {model} (podle specifikace MIoT, neověřeno)").format(model=model)
             else:
                 self._prof = self._manual()
-                self.note = f"model {model or '?'} neznám, používám ruční nastavení"
+                self.note = _("model {v} neznám, používám ruční nastavení").format(v=model or '?')
         log.info("Ventilátor %s, profil %s", model, self._prof)
         return self._prof
 
@@ -283,7 +284,7 @@ class XiaomiFan:
         res = self.client.send("set_properties", props)
         for r in res or []:
             if r.get("code", 0) != 0:
-                raise MiioError(f"Ventilátor odmítl nastavení {r.get('did')}: kód {r.get('code')}")
+                raise MiioError(_("Ventilátor odmítl nastavení {v}: kód {v2}").format(v=r.get('did'), v2=r.get('code')))
 
     # --- rychlost v % (jen modely s rychlostí v %, viz vitr.py)
     def _pct_range(self):
@@ -322,7 +323,7 @@ class XiaomiFan:
         ])
         for r in res or []:
             if r.get("code", 0) != 0:
-                raise MiioError(f"Ventilátor odmítl nastavení {r.get('did')}: kód {r.get('code')}")
+                raise MiioError(_("Ventilátor odmítl nastavení {v}: kód {v2}").format(v=r.get('did'), v2=r.get('code')))
 
     def get_percent(self) -> tuple[bool, float]:
         from .vitr import range_to_pct
@@ -520,10 +521,10 @@ class FanWorker:
                     self._quiet_pending = False
                     note = getattr(fan, "note", None)
                     if note and not failed:
-                        self._emit(True, f"připojeno: {note}")
+                        self._emit(True, _("připojeno: {note}").format(note=note))
                     if failed:
-                        self._emit(True, f"připojeno{': ' + note if note else ''} (nepodporuje: "
-                                   + ", ".join("pípání" if f == "buzzer" else "podsvícení" for f in failed) + ")")
+                        self._emit(True, _("připojeno{v} (nepodporuje: ").format(v=': ' + note if note else '')
+                                   + ", ".join(_("pípání") if f == "buzzer" else _("podsvícení") for f in failed) + ")")
                 if desired is None:
                     continue
                 if dpct is not None and self._capable(fan):
@@ -545,7 +546,7 @@ class FanWorker:
                         with self._lock:
                             self._sent = None
                         self._wake.set()
-                    self._emit(True, "připojeno", actual)
+                    self._emit(True, _("připojeno"), actual)
             except Exception as e:  # noqa: BLE001
                 self._last_error = time.monotonic()
                 self._quiet_pending = True  # po výpadku (třeba vytažení ze zásuvky) nastavit znovu
@@ -587,4 +588,4 @@ class FanWorker:
                     with self._lock:
                         self._sent_pct = None
                     self._wake.set()
-            self._emit(True, "připojeno", pct_to_level(actual, n))
+            self._emit(True, _("připojeno"), pct_to_level(actual, n))

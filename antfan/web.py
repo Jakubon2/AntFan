@@ -23,6 +23,9 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from . import i18n
+from .i18n import N_
+
 log = logging.getLogger("antfan.web")
 
 DEFAULT_PORT = 8686
@@ -67,6 +70,7 @@ class WebServer:
         self._thread: threading.Thread | None = None
         self.key = ""
         self.port = 0
+        self.language = "auto"  # jazyk stránky: cs | en | auto (= podle Accept-Language)
 
     @property
     def running(self) -> bool:
@@ -152,7 +156,8 @@ class _Handler(BaseHTTPRequestHandler):
         if rest is None:
             return self._not_found()
         if rest == "":
-            return self._send(200, PAGE.encode("utf-8"), "text/html; charset=utf-8")
+            lang = page_language(self.web.language, self.headers.get("Accept-Language", ""))
+            return self._send(200, render_page(lang).encode("utf-8"), "text/html; charset=utf-8")
         if rest == "api/state":
             return self._json(200, self.web.snapshot())
         return self._not_found()
@@ -190,6 +195,45 @@ class _Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             return None
         return self.rfile.read(n) if n > 0 else b""
+
+
+def page_language(setting: str, accept: str) -> str:
+    """cs/en: podle nastavení aplikace, při auto podle Accept-Language prohlížeče."""
+    if setting in ("cs", "en"):
+        return setting
+    for part in (accept or "").split(","):
+        tag = part.split(";", 1)[0].strip().lower()
+        if tag and tag != "*":
+            return "cs" if tag.startswith("cs") else "en"
+    return i18n.current()
+
+
+# texty stránky: (úsek v PAGE, český text uvnitř); v angličtině se text přeloží
+PAGE_TEXTS = [
+    ('lang="{}"', None),
+    (">{}<", N_("Připojuji…")),
+    (">{}<", N_("Výkon")),
+    (">{}<", N_("Tep")),
+    (">{}<", N_("Ventilátor")),
+    (">{}<", N_("Obrazovku nechte rozsvícenou, jinak se obnovování zastaví.")),
+    ('"{}"', N_("Vyp")),
+    ('"{}"', N_("Výkon")),
+    ('"{}"', N_("Příkaz se nepodařilo odeslat.")),
+    ('"{}"', N_("Bez spojení s počítačem")),
+]
+
+
+def render_page(lang: str) -> str:
+    if lang != "en":
+        return PAGE
+    from .i18n_en import EN
+    page = PAGE
+    for pattern, text in PAGE_TEXTS:
+        if text is None:
+            page = page.replace(pattern.format("cs"), pattern.format("en"))
+        else:
+            page = page.replace(pattern.format(text), pattern.format(EN.get(text, text)))
+    return page
 
 
 PAGE = r"""<!doctype html>

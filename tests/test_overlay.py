@@ -106,5 +106,10 @@ class Helpers(unittest.TestCase):
         self.assertEqual(overlay.short_reason("předstih"), "předstih")
 
 
+from tests import czech_module  # noqa: E402
+
+setUpModule, tearDownModule = czech_module()
+
+
 if __name__ == "__main__":
     unittest.main()

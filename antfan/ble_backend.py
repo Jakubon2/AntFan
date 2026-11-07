@@ -32,6 +32,7 @@ from collections import deque
 
 from .ant_backend import (BLE_OFFSET, FE_TYPE, HR_TYPE, PM_TYPE, AntBackend, FoundDevice,
                           SimulatedBackend, is_ble)
+from .i18n import _
 
 log = logging.getLogger("antfan.ble")
 
@@ -303,8 +304,8 @@ def macos_ble_check() -> str | None:
             _mac_check.append(None)
             return None
         if auth in (1, 2):
-            err = ("Bluetooth: macOS AntFanu nepovolil přístup. Povolte ho v Nastavení systému → "
-                   "Soukromí a zabezpečení → Bluetooth.")
+            err = (_("Bluetooth: macOS AntFanu nepovolil přístup. Povolte ho v Nastavení systému → "
+                   "Soukromí a zabezpečení → Bluetooth."))
         else:
             if getattr(sys, "frozen", False):
                 cmd = [sys.executable, "--ble-probe"]
@@ -317,12 +318,12 @@ def macos_ble_check() -> str | None:
             r = subprocess.run(cmd, env=env, capture_output=True, timeout=30)
             if r.returncode < 0 or r.returncode == 134:  # SIGABRT od TCC
                 log.warning("BT zkouška skončila kódem %s: %s", r.returncode, r.stderr[-500:])
-                err = ("Bluetooth: macOS program nepustil k Bluetooth (chybí oprávnění). Spusťte "
+                err = (_("Bluetooth: macOS program nepustil k Bluetooth (chybí oprávnění). Spusťte "
                        "AntFan jako aplikaci AntFan.app a povolte Bluetooth v Nastavení systému → "
-                       "Soukromí a zabezpečení → Bluetooth.")
+                       "Soukromí a zabezpečení → Bluetooth."))
     except Exception as e:  # noqa: BLE001
         log.exception("Kontrola Bluetooth na macOS")
-        err = f"Bluetooth: kontrola oprávnění selhala ({type(e).__name__})."
+        err = _("Bluetooth: kontrola oprávnění selhala ({name__}).").format(name__=type(e).__name__)
     _mac_check.append(err)
     return err
 
@@ -331,11 +332,11 @@ def _friendly_ble_error(e: BaseException) -> str:
     text = str(e) or type(e).__name__
     low = text.lower()
     if "not authorized" in low or "unauthorized" in low:
-        return "Bluetooth: program nemá oprávnění (macOS: Nastavení → Soukromí → Bluetooth)."
+        return _("Bluetooth: program nemá oprávnění (macOS: Nastavení → Soukromí → Bluetooth).")
     if "turned off" in low or "powered off" in low or "radio" in low and "off" in low:
-        return "Bluetooth je vypnutý."
+        return _("Bluetooth je vypnutý.")
     if "no bluetooth adapter" in low or "adapter" in low and "not" in low or "not available" in low:
-        return "Bluetooth adaptér nenalezen."
+        return _("Bluetooth adaptér nenalezen.")
     return f"Bluetooth: {type(e).__name__}: {text}"
 
 
@@ -390,7 +391,7 @@ class BleBackend:
         self.state = "idle"
         self._rx = {}
         self._submit(self._restart(None))
-        self._status("Bluetooth zastaven")
+        self._status(_("Bluetooth zastaven"))
 
     def reset(self) -> None:
         pass
@@ -463,7 +464,7 @@ class BleBackend:
                 scanner = BleakScanner(detection_callback=on_adv)
                 await scanner.start()
                 try:
-                    self._status(f"Bluetooth: hledám ({int(duration)} s)…")
+                    self._status(_("Bluetooth: hledám ({v} s)…").format(v=int(duration)))
                     end = time.monotonic() + duration
                     while time.monotonic() < end and self._gen == gen:
                         await asyncio.sleep(0.25)
@@ -482,7 +483,7 @@ class BleBackend:
         if error:
             self.events.put(("ant_error", error))
         else:
-            self._status(f"Bluetooth: vyhledávání dokončeno – nalezeno {len(seen)} senzorů")
+            self._status(_("Bluetooth: vyhledávání dokončeno – nalezeno {v} senzorů").format(v=len(seen)))
             self.events.put(("scan_done",))
 
     async def _monitor(self, devices: list[FoundDevice], gen: int):
@@ -496,8 +497,7 @@ class BleBackend:
         for d in devices:
             rec = self.registry.lookup(d.device_id)
             if rec is None:
-                self._status(f"Bluetooth: {d.type_name} #{d.device_id} neznám adresu – "
-                             "vyhledejte senzory znovu")
+                self._status(_("Bluetooth: {type_name} #{device_id} neznám adresu – vyhledejte senzory znovu").format(type_name=d.type_name, device_id=d.device_id))
                 continue
             by_addr.setdefault(rec[0], []).append(d)
         self._conn_state = {}
@@ -525,16 +525,16 @@ class BleBackend:
         while self._gen == gen:
             client = None
             try:
-                self._report(address, f"{label} hledám…")
+                self._report(address, _("{label} hledám…").format(label=label))
                 async with self._scan_lock:
                     dev = await BleakScanner.find_device_by_address(address, timeout=10.0)
                 if dev is None:
-                    raise LookupError("senzor nevysílá (vypnutý, mimo dosah, nebo už je "
-                                      "připojený k jinému programu)")
+                    raise LookupError(_("senzor nevysílá (vypnutý, mimo dosah, nebo už je "
+                                      "připojený k jinému programu)"))
                 lost = asyncio.Event()
                 client = BleakClient(
                     dev, disconnected_callback=lambda _c: self._loop.call_soon_threadsafe(lost.set))
-                self._report(address, f"{label} připojuji…")
+                self._report(address, _("{label} připojuji…").format(label=label))
                 await client.connect(timeout=20.0)
                 now = time.monotonic()
                 for d in devices:
@@ -544,7 +544,7 @@ class BleBackend:
                     if mon is not None:
                         mon.restart(now)
                 log.info("BT připojeno: %s (%s)", label, address)
-                self._report(address, f"{label} připojen")
+                self._report(address, _("{label} připojen").format(label=label))
                 delay = 2.0
                 while self._gen == gen and not lost.is_set():
                     try:
@@ -553,7 +553,7 @@ class BleBackend:
                         pass
                 if lost.is_set():
                     log.warning("BT spojení ztraceno: %s", label)
-                    self._report(address, f"{label} spojení ztraceno, připojuji znovu…")
+                    self._report(address, _("{label} spojení ztraceno, připojuji znovu…").format(label=label))
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001
@@ -660,7 +660,7 @@ class SimulatedBleBackend:
         now = time.monotonic()
         self._rx = {d.key: BleRx(d.type_name, now) for d in devices}
         self.events.put(("ant_status", "Bluetooth: " + ", ".join(
-            f"{d.type_name} #{d.device_id} připojen" for d in devices)))
+            _("{type_name} #{device_id} připojen").format(type_name=d.type_name, device_id=d.device_id) for d in devices)))
 
         def run():
             hr = 100.0
@@ -761,12 +761,12 @@ class CombinedBackend:
             if self.ble is None or self._ant_available():
                 self._active.add("ant")
             else:
-                self._notes.append("ANT+ dongle nezapojen")
+                self._notes.append(_("ANT+ dongle nezapojen"))
             if self.ble is not None:
                 self._active.add("ble")
             self._found = {s: set() for s in self._active}
         what = " a ".join(x for x, s in (("ANT+", "ant"), ("Bluetooth", "ble")) if s in self._active)
-        self.events.put(("ant_status", f"{self._pre}Vyhledávám senzory {what} ({int(duration)} s)…"))
+        self.events.put(("ant_status", _("{pre}Vyhledávám senzory {what} ({v} s)…").format(pre=self._pre, what=what, v=int(duration))))
         if "ant" in self._active:
             self.ant.start_scan(duration)
         else:
@@ -800,7 +800,7 @@ class CombinedBackend:
             self._begin(None)
         for p in self._parts():
             p.stop()
-        self.events.put(("ant_status", f"{self._pre}Zastaveno"))
+        self.events.put(("ant_status", _("{pre}Zastaveno").format(pre=self._pre)))
 
     def reset(self) -> None:
         self.ant.reset()
@@ -886,7 +886,7 @@ class CombinedBackend:
             notes.append("ANT+: " + self._errors["ant"].split("\n")[0])
         if "ble" in self._errors:
             notes.append(self._errors["ble"].split("\n")[0])
-        text = f"{self._pre}Vyhledávání dokončeno – nalezeno {n} senzorů"
+        text = _("{pre}Vyhledávání dokončeno – nalezeno {n} senzorů").format(pre=self._pre, n=n)
         if notes:
             text += " (" + "; ".join(notes) + ")"
         self.events.put(("ant_status", text))

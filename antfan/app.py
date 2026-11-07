@@ -36,6 +36,8 @@ from .pairing_ui import PairingUi
 from .single_instance import SingleInstance
 from . import vitr_ui
 from .battery_ui import BatteryUIMixin
+from . import i18n
+from .i18n import _, N_, plural
 
 log = logging.getLogger("antfan")
 
@@ -49,8 +51,8 @@ DARK = dict(BG="#1c1d20", SURFACE="#26272b", BORDER="#3a3b40", TEXT="#ecebe7", M
             FAINT="#6f6e69", POWER="#EE7A50", HR="#E8739B", FAN="#5E9FE3", FAN_BAND="#1e3048",
             ACCENT="#5E9FE3", ACCENT_BG="#1e3048", OK="#5cb860", BAD="#e8695a")
 BG = SURFACE = BORDER = TEXT = MUTED = FAINT = POWER = HR = FAN = FAN_BAND = ACCENT = ACCENT_BG = OK = BAD = ""
-FAN_KINDS = {"xiaomi": "Xiaomi", "shelly": "Shelly zásuvka", "homeassistant": "Home Assistant"}
-THEMES = [("light", "Světlý"), ("dark", "Tmavý"), ("system", "Podle systému")]
+FAN_KINDS = {"xiaomi": "Xiaomi", "shelly": N_("Shelly zásuvka"), "homeassistant": "Home Assistant"}
+THEMES = [("light", N_("Světlý")), ("dark", N_("Tmavý")), ("system", N_("Podle systému"))]
 
 
 def system_is_dark() -> bool:
@@ -92,11 +94,11 @@ def _titlebar(win, dark: bool) -> None:
 _set_palette(False)
 
 MODE_CARDS = [
-    ("smart", "Chytře", "Výkon zvyšuje, tep drží"),
-    ("power", "Jen výkon", "Reaguje hned"),
-    ("hr", "Jen tep", "Bez powermetru"),
-    ("max", "Vyšší z obou", "Fouká víc"),
-    ("wind", "Vítr podle rychlosti", "Rychlost jízdy z trenažéru"),
+    ("smart", N_("Chytře"), N_("Výkon zvyšuje, tep drží")),
+    ("power", N_("Jen výkon"), N_("Reaguje hned")),
+    ("hr", N_("Jen tep"), N_("Bez powermetru")),
+    ("max", N_("Vyšší z obou"), N_("Fouká víc")),
+    ("wind", N_("Vítr podle rychlosti"), N_("Rychlost jízdy z trenažéru")),
 ]
 
 
@@ -111,7 +113,7 @@ def setup_logging():
 
 
 def _plural_senzor(n: int) -> str:
-    return "senzor" if n == 1 else ("senzory" if 2 <= n <= 4 else "senzorů")
+    return plural(n, "senzor", "senzory", "senzorů")
 
 
 class Fonts:
@@ -193,6 +195,7 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
     def __init__(self, root: tk.Tk):
         self.root = root
         self.cfg = config_mod.load()
+        i18n.set_language(self.cfg.language)
         self.events: queue.Queue = queue.Queue()
         self.devices: dict[tuple[int, int], FoundDevice] = {}
         self.selected: set[tuple[int, int]] = {(d[0], d[1]) for d in self.cfg.selected}
@@ -204,11 +207,12 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         self._last_pm_value = -1e9
         self.manual_level = 0
         self._ant_error = False
-        self.ant_status_full = "Připraveno"
-        self.fan_status_text, self.fan_ok = "nepřipojeno", False
+        self.ant_status_full = _("Připraveno")
+        self.fan_status_text, self.fan_ok = _("nepřipojeno"), False
         self._apply_job = None
         self._last_bars = None
         self.web = web.WebServer(self.events)  # ovládání z mobilu; přežije _rebuild_ui
+        self.web.language = self.cfg.language
         self.web_error = ""
         self.web_on = self.cfg.web_autostart  # zapíná se tlačítkem Mobil, trvale jen volbou v Nastavení
         self._web_last = 0.0
@@ -308,6 +312,16 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         if dark != self.dark:
             self._rebuild_ui(dark)
 
+    def on_language(self):
+        lang = self.lang_var.get()
+        if lang == self.cfg.language:
+            return
+        self.cfg.language = lang
+        config_mod.save(self.cfg)
+        self.web.language = lang
+        i18n.set_language(lang)
+        self._rebuild_ui(self.dark)
+
     def _rebuild_ui(self, dark: bool):
         """Přestaví obě okna v novém motivu; stav měření a historie zůstává."""
         if self._apply_job is not None:
@@ -353,14 +367,14 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         self.st_ant.pack(side="left", padx=(0, 14))
         self.st_fan = StatusDot(top, f)
         self.st_fan.pack(side="left")
-        ttk.Button(top, text="Nastavení", command=lambda: self.open_settings()).pack(side="right")
-        self.btn_web = ttk.Button(top, text="Zapnout mobil", command=self.on_web_button)
+        ttk.Button(top, text=_("Nastavení"), command=lambda: self.open_settings()).pack(side="right")
+        self.btn_web = ttk.Button(top, text=_("Zapnout mobil"), command=self.on_web_button)
         self.btn_web.pack(side="right", padx=(8, 0))
         self.st_web = StatusDot(top, f)
         self.st_web.pack(side="left", padx=(14, 0))
-        self.btn_run = ttk.Button(top, text="Spustit měření", command=self.on_run_toggle)
+        self.btn_run = ttk.Button(top, text=_("Spustit měření"), command=self.on_run_toggle)
         self.btn_run.pack(side="right", padx=8)
-        ttk.Checkbutton(top, text="Lišta", variable=self.overlay_var,
+        ttk.Checkbutton(top, text=_("Lišta"), variable=self.overlay_var,
                         command=lambda: overlay.apply(self)).pack(side="right", padx=(0, 6))
         self._profile_bar(top)
         _hline(r)
@@ -369,11 +383,11 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         tiles.pack(fill="x")
         for i in (0, 2, 4):
             tiles.columnconfigure(i, weight=1, uniform="tile")
-        self.t_power = self._tile(tiles, 0, "Výkon · průměr", "W", POWER)
+        self.t_power = self._tile(tiles, 0, _("Výkon · průměr"), "W", POWER)
         tk.Frame(tiles, width=1, bg=BORDER).grid(row=0, column=1, sticky="ns")
-        self.t_hr = self._tile(tiles, 2, "Tep", "bpm", HR)
+        self.t_hr = self._tile(tiles, 2, _("Tep"), "bpm", HR)
         tk.Frame(tiles, width=1, bg=BORDER).grid(row=0, column=3, sticky="ns")
-        self.t_fan = self._tile(tiles, 4, "Ventilátor", "", FAN, bars=True)
+        self.t_fan = self._tile(tiles, 4, _("Ventilátor"), "", FAN, bars=True)
         _hline(r)
 
         self.canvas = tk.Canvas(r, background=BG, highlightthickness=0, height=int(220 * self.px))
@@ -381,15 +395,15 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         self.canvas.bind("<Configure>", lambda e: self._draw_chart())
         legend = tk.Frame(r, bg=BG)
         legend.pack(fill="x", padx=16, pady=(0, 8))
-        for text, col in (("výkon, W", POWER), ("tep, bpm (60–200)", HR), ("ventilátor", FAN)):
+        for text, col in ((_("výkon, W"), POWER), (_("tep, bpm (60–200)"), HR), (_("ventilátor"), FAN)):
             self._lbl(legend, text, fg=col).pack(side="left", padx=(0, 14))
-        self._lbl(legend, "posledních 10 min", fg=FAINT).pack(side="right")
+        self._lbl(legend, _("posledních 10 min"), fg=FAINT).pack(side="right")
         self._build_drink_strip(r)
         _hline(r)
 
         bottom = tk.Frame(r, bg=BG)
         bottom.pack(fill="x", padx=14, pady=10)
-        opts = [("auto", "Auto"), (0, "Vyp")] + [(i, str(i)) for i in range(1, self.cfg.fan.max_level + 1)]
+        opts = [("auto", "Auto"), (0, _("Vyp"))] + [(i, str(i)) for i in range(1, self.cfg.fan.max_level + 1)]
         self.seg = Segmented(bottom, opts, self.on_segment, f)
         self.seg.pack(side="left")
         self.rx_box = tk.Frame(bottom, bg=BG)
@@ -440,7 +454,7 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
     # ============================================================ nastavení
     def _build_settings(self):
         w = self.settings = tk.Toplevel(self.root)
-        w.title("AntFan – nastavení")
+        w.title(_("AntFan – nastavení"))
         w.configure(bg=BG)
         w.withdraw()
         w.protocol("WM_DELETE_WINDOW", w.withdraw)
@@ -451,16 +465,16 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         host.pack(side="left", fill="both", expand=True, padx=20, pady=16)
         self.pages, self.nav_items = {}, {}
         tk.Frame(nav, bg=SURFACE, height=10).pack()
-        for key, title, builder in (("sensors", "Senzory", self._page_sensors),
-                                    ("fan", "Ventilátor", self._page_fan),
-                                    ("control", "Řízení", self._page_control),
-                                    ("behavior", "Chování", self._page_behavior),
-                                    ("drink", "Pití", self._page_drink),
-                                    ("look", "Vzhled", self._page_look),
-                                    ("mobile", "Mobil", self._page_mobile),
-                                    ("rides", "Jízdy", self._page_rides),
-                                    ("coexist", "Souběh", self._page_coexist),
-                                    ("diag", "Diagnostika", self._page_diag)):
+        for key, title, builder in (("sensors", _("Senzory"), self._page_sensors),
+                                    ("fan", _("Ventilátor"), self._page_fan),
+                                    ("control", _("Řízení"), self._page_control),
+                                    ("behavior", _("Chování"), self._page_behavior),
+                                    ("drink", _("Pití"), self._page_drink),
+                                    ("look", _("Vzhled"), self._page_look),
+                                    ("mobile", _("Mobil"), self._page_mobile),
+                                    ("rides", _("Jízdy"), self._page_rides),
+                                    ("coexist", _("Souběh"), self._page_coexist),
+                                    ("diag", _("Diagnostika"), self._page_diag)):
             lb = tk.Label(nav, text=title, bg=SURFACE, fg=MUTED, font=self.fonts.body, anchor="w",
                           padx=14, pady=6, width=14, cursor="hand2")
             lb.pack(fill="x", padx=6, pady=1)
@@ -504,19 +518,19 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
 
     # --- Senzory
     def _page_sensors(self, p):
-        self._page_head(p, "Senzory", "Kliknutím vyberte tepový pás a trenažér nebo powermetr. "
-                                      "Výběr se pamatuje, příště stačí Spustit měření.")
+        self._page_head(p, _("Senzory"), _("Kliknutím vyberte tepový pás a trenažér nebo powermetr. "
+                                      "Výběr se pamatuje, příště stačí Spustit měření."))
         row = tk.Frame(p, bg=BG)
         row.pack(fill="x", pady=(0, 8))
-        ttk.Button(row, text="Hledat senzory", command=self.on_scan).pack(side="left")
-        ttk.Button(row, text="Najít moje senzory", command=self.on_pair).pack(side="left", padx=(6, 0))
+        ttk.Button(row, text=_("Hledat senzory"), command=self.on_scan).pack(side="left")
+        ttk.Button(row, text=_("Najít moje senzory"), command=self.on_pair).pack(side="left", padx=(6, 0))
         self.lbl_scan = self._lbl(row, "", font=self.fonts.body)
         self.lbl_scan.pack(side="left", padx=10)
         cols = ("sel", "type", "id", "value", "rx", "batt")
         self.tree = ttk.Treeview(p, columns=cols, show="headings", selectmode="none", height=7)
-        for c, t, wd in (("sel", "", 30), ("type", "Typ", 110), ("id", "ID", 70),
-                         ("value", "Hodnota", 80), ("rx", "Příjem", 70),
-                         ("batt", "Baterie", 80)):
+        for c, t, wd in (("sel", "", 30), ("type", _("Typ"), 110), ("id", "ID", 70),
+                         ("value", _("Hodnota"), 80), ("rx", _("Příjem"), 70),
+                         ("batt", _("Baterie"), 80)):
             self.tree.heading(c, text=t)
             self.tree.column(c, width=int(wd * self.px), anchor="center" if c != "type" else "w")
         self.tree.tag_configure("weak", foreground=BAD)
@@ -526,24 +540,23 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         self.lbl_sensor_hint = self._lbl(p, "", fg=BAD, font=self.fonts.body, justify="left",
                                          anchor="w", wraplength=int(440 * self.px))
         self.lbl_sensor_hint.pack(fill="x", pady=(8, 0))
-        self._lbl(p, f"Najednou nejvýš {MAX_CHANNELS} senzorů. Trenažér vysílá výkon jako Trenažér "
-                     "i jako Powermetr se stejným ID, stačí vybrat jeden.",
+        self._lbl(p, _("Najednou nejvýš {MAX_CHANNELS} senzorů. Trenažér vysílá výkon jako Trenažér i jako Powermetr se stejným ID, stačí vybrat jeden.").format(MAX_CHANNELS=MAX_CHANNELS),
                   anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(6, 0))
-        self._lbl(p, "Senzory (BT) jdou přes Bluetooth. Bluetooth senzor často dovolí jen 1–2 spojení "
+        self._lbl(p, _("Senzory (BT) jdou přes Bluetooth. Bluetooth senzor často dovolí jen 1–2 spojení "
                      "najednou, s Rouvy na Bluetooth se mohou přetahovat. Umí-li senzor i ANT+, "
-                     "připojte ho jedním z programů přes ANT+.",
+                     "připojte ho jedním z programů přes ANT+."),
                   anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(6, 0))
         self._batt_build_options(p)
 
     # --- Ventilátor
     def _page_fan(self, p):
         f = self.cfg.fan
-        self._page_head(p, "Ventilátor", "Co AntFan ovládá. Údaje zůstávají jen v tomto počítači.")
+        self._page_head(p, _("Ventilátor"), _("Co AntFan ovládá. Údaje zůstávají jen v tomto počítači."))
         self.fan_kind = tk.StringVar(value=f.kind if f.kind in FAN_KINDS else "xiaomi")
         kinds = tk.Frame(p, bg=BG)
         kinds.pack(fill="x", pady=(0, 10))
         for key, text in FAN_KINDS.items():
-            ttk.Radiobutton(kinds, text=text, variable=self.fan_kind, value=key,
+            ttk.Radiobutton(kinds, text=_(text), variable=self.fan_kind, value=key,
                             command=self._show_fan_kind).pack(side="left", padx=(0, 14))
         host = tk.Frame(p, bg=BG)
         host.pack(fill="x")
@@ -567,57 +580,57 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         # Xiaomi
         fx = tk.Frame(host, bg=BG)
         g = grid(fx)
-        self.e_ip = row(g, 0, "IP adresa", entry(g, f.ip))
+        self.e_ip = row(g, 0, _("IP adresa"), entry(g, f.ip))
         self.e_token = row(g, 1, "Token", entry(g, f.token, 40, "•"))
-        ttk.Button(fx, text="Získat z účtu Xiaomi…", command=self.on_xiaomi_login).pack(anchor="w", pady=(4, 0))
-        self._lbl(fx, "Přihlásíte se QR kódem v aplikaci Mi Home, heslo se nikam nezadává.",
+        ttk.Button(fx, text=_("Získat z účtu Xiaomi…"), command=self.on_xiaomi_login).pack(anchor="w", pady=(4, 0))
+        self._lbl(fx, _("Přihlásíte se QR kódem v aplikaci Mi Home, heslo se nikam nezadává."),
                   anchor="w").pack(fill="x", pady=(2, 6))
         self.lbl_fan_model = self._lbl(fx, f"Model: {f.model}" if f.model else
-                                       "Model se zjistí při připojení.", anchor="w")
+                                       _("Model se zjistí při připojení."), anchor="w")
         self.lbl_fan_model.pack(fill="x")
         self.mute_var = tk.BooleanVar(value=f.mute_buzzer)
         self.light_var = tk.BooleanVar(value=f.light_off)
-        ttk.Checkbutton(fx, text="Vypnout pípání", variable=self.mute_var,
+        ttk.Checkbutton(fx, text=_("Vypnout pípání"), variable=self.mute_var,
                         command=self.on_fan_save).pack(anchor="w", pady=(8, 0))
-        ttk.Checkbutton(fx, text="Vypnout podsvícení", variable=self.light_var,
+        ttk.Checkbutton(fx, text=_("Vypnout podsvícení"), variable=self.light_var,
                         command=self.on_fan_save).pack(anchor="w")
         # Shelly
         fs = tk.Frame(host, bg=BG)
         g = grid(fs)
-        self.e_shelly = row(g, 0, "IP adresa Shelly", entry(g, f.shelly_host))
+        self.e_shelly = row(g, 0, _("IP adresa Shelly"), entry(g, f.shelly_host))
         self.sp_shelly_ch = ttk.Spinbox(g, from_=0, to=3, width=5)
         self.sp_shelly_ch.set(f.shelly_channel)
-        row(g, 1, "Výstup (kanál)", self.sp_shelly_ch)
+        row(g, 1, _("Výstup (kanál)"), self.sp_shelly_ch)
         self.sp_on_level_s = ttk.Spinbox(g, from_=1, to=5, width=5)
         self.sp_on_level_s.set(f.on_level)
-        row(g, 2, "Zapnout od stupně", self.sp_on_level_s)
-        self._lbl(fs, "Obyčejný ventilátor v zásuvce Shelly umí jen zapnout a vypnout. Rychlost nastavte "
-                      "na ventilátoru. Shelly musí být bez hesla.", anchor="w", justify="left",
+        row(g, 2, _("Zapnout od stupně"), self.sp_on_level_s)
+        self._lbl(fs, _("Obyčejný ventilátor v zásuvce Shelly umí jen zapnout a vypnout. Rychlost nastavte "
+                      "na ventilátoru. Shelly musí být bez hesla."), anchor="w", justify="left",
                   wraplength=wl).pack(fill="x", pady=(6, 0))
         # Home Assistant
         fh = tk.Frame(host, bg=BG)
         g = grid(fh)
-        self.e_ha_url = row(g, 0, "Adresa", entry(g, f.ha_url or "http://homeassistant.local:8123", 32))
+        self.e_ha_url = row(g, 0, _("Adresa"), entry(g, f.ha_url or "http://homeassistant.local:8123", 32))
         self.e_ha_token = row(g, 1, "Token", entry(g, f.ha_token, 40, "•"))
-        self.e_ha_entity = row(g, 2, "Entita", entry(g, f.ha_entity))
+        self.e_ha_entity = row(g, 2, _("Entita"), entry(g, f.ha_entity))
         self.sp_on_level_h = ttk.Spinbox(g, from_=1, to=5, width=5)
         self.sp_on_level_h.set(f.on_level)
-        row(g, 3, "Zapnout od stupně", self.sp_on_level_h)
-        self._lbl(fh, "Token: v Home Assistant profil → Zabezpečení → Dlouhodobé přístupové tokeny. "
-                      "Entita fan.* dostane rychlost v %, switch.* jen zapnout/vypnout od zadaného stupně.",
+        row(g, 3, _("Zapnout od stupně"), self.sp_on_level_h)
+        self._lbl(fh, _("Token: v Home Assistant profil → Zabezpečení → Dlouhodobé přístupové tokeny. "
+                      "Entita fan.* dostane rychlost v %, switch.* jen zapnout/vypnout od zadaného stupně."),
                   anchor="w", justify="left", wraplength=wl).pack(fill="x", pady=(6, 0))
         self.fan_frames = {"xiaomi": fx, "shelly": fs, "homeassistant": fh}
 
         common = tk.Frame(p, bg=BG)
         common.pack(fill="x", pady=(12, 0))
-        ttk.Label(common, text="Počet stupňů").pack(side="left")
+        ttk.Label(common, text=_("Počet stupňů")).pack(side="left")
         self.sp_levels = ttk.Spinbox(common, from_=1, to=5, width=5)
         self.sp_levels.set(f.max_level)
         self.sp_levels.pack(side="left", padx=(10, 0))
         bf = tk.Frame(p, bg=BG)
         bf.pack(fill="x", pady=(12, 0))
-        ttk.Button(bf, text="Uložit a připojit", command=self.on_fan_save).pack(side="left")
-        ttk.Button(bf, text="Vyzkoušet", command=self.on_fan_test).pack(side="left", padx=8)
+        ttk.Button(bf, text=_("Uložit a připojit"), command=self.on_fan_save).pack(side="left")
+        ttk.Button(bf, text=_("Vyzkoušet"), command=self.on_fan_test).pack(side="left", padx=8)
         self.lbl_fan_status = self._lbl(p, "", font=self.fonts.body, anchor="w", justify="left",
                                         wraplength=wl)
         self.lbl_fan_status.pack(fill="x", pady=(10, 0))
@@ -647,16 +660,16 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
     # --- Řízení
     def _page_control(self, p):
         c = self.cfg.control
-        self._page_head(p, "Řízení", "Podle čeho a od jakých hodnot ventilátor přidává.")
+        self._page_head(p, _("Řízení"), _("Podle čeho a od jakých hodnot ventilátor přidává."))
         self._profile_row(p)
-        self._lbl(p, "Řídit podle", fg=TEXT, font=self.fonts.body_b, anchor="w").pack(fill="x", pady=(0, 6))
+        self._lbl(p, _("Řídit podle"), fg=TEXT, font=self.fonts.body_b, anchor="w").pack(fill="x", pady=(0, 6))
         cards = tk.Frame(p, bg=BG)
         cards.pack(fill="x")
         cards.columnconfigure(0, weight=1, uniform="card")
         cards.columnconfigure(1, weight=1, uniform="card")
         self.mode_cards = {}
         for i, (key, title, desc) in enumerate(MODE_CARDS):
-            card = ChoiceCard(cards, title, desc, lambda k=key: self.on_source(k), self.fonts)
+            card = ChoiceCard(cards, _(title), _(desc), lambda k=key: self.on_source(k), self.fonts)
             card.grid(row=i // 2, column=i % 2, sticky="nsew", padx=(0 if i % 2 == 0 else 4, 0 if i % 2 else 4), pady=4)
             self.mode_cards[key] = card
         self._update_cards()
@@ -667,7 +680,7 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         self.e_ftp = self._entry(base, c.ftp)
         self.e_ftp.pack(side="left", padx=(6, 4))
         self._lbl(base, "W").pack(side="left", padx=(0, 18))
-        ttk.Label(base, text="Max. tep").pack(side="left")
+        ttk.Label(base, text=_("Max. tep")).pack(side="left")
         self.e_hrmax = self._entry(base, c.hr_max)
         self.e_hrmax.pack(side="left", padx=(6, 4))
         self._lbl(base, "bpm").pack(side="left")
@@ -675,15 +688,15 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         tm = tk.Frame(p, bg=BG)
         tm.pack(fill="x", pady=(0, 6))
         self.thr_mode = tk.StringVar(value=c.threshold_mode)
-        ttk.Label(tm, text="Prahy v").pack(side="left", padx=(0, 8))
-        ttk.Radiobutton(tm, text="% FTP a % max. tepu", variable=self.thr_mode, value="relative",
+        ttk.Label(tm, text=_("Prahy v")).pack(side="left", padx=(0, 8))
+        ttk.Radiobutton(tm, text=_("% FTP a % max. tepu"), variable=self.thr_mode, value="relative",
                         command=self.on_thr_mode).pack(side="left")
-        ttk.Radiobutton(tm, text="W a bpm", variable=self.thr_mode, value="absolute",
+        ttk.Radiobutton(tm, text=_("W a bpm"), variable=self.thr_mode, value="absolute",
                         command=self.on_thr_mode).pack(side="left", padx=10)
 
         grid = tk.Frame(p, bg=BG)
         grid.pack(fill="x")
-        for col, text in enumerate(("Stupeň", "Výkon", "", "Tep", "")):
+        for col, text in enumerate((_("Stupeň"), _("Výkon"), "", _("Tep"), "")):
             self._lbl(grid, text, anchor="w").grid(row=0, column=col, sticky="w", padx=(0, 6), pady=(0, 2))
         self.e_pthr, self.e_hthr, self.lbl_phints, self.lbl_hhints = [], [], [], []
         self.lbl_punits, self.lbl_hunits = [], []
@@ -717,26 +730,26 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         vitr_ui.build_control_section(self, p)
         self.lbl_ctrl_err = self._lbl(p, "", fg=BAD, font=self.fonts.body, anchor="w")
         self.lbl_ctrl_err.pack(fill="x", pady=(8, 0))
-        self._lbl(p, "Změny se ukládají hned. Hystereze, vyhlazení a dofukování jsou v Chování.",
+        self._lbl(p, _("Změny se ukládají hned. Hystereze, vyhlazení a dofukování jsou v Chování."),
                   anchor="w").pack(fill="x", pady=(2, 0))
 
     # --- Chování
     def _page_behavior(self, p):
         c = self.cfg.control
-        self._page_head(p, "Chování", "Jak rychle ventilátor reaguje a co dělá po tréninku.")
+        self._page_head(p, _("Chování"), _("Jak rychle ventilátor reaguje a co dělá po tréninku."))
         g = tk.Frame(p, bg=BG)
         g.pack(fill="x")
         rows = [
-            ("Hystereze výkonu", c.power_hysteresis, "W", "e_physt"),
-            ("Hystereze tepu", c.hr_hysteresis, "bpm", "e_hhyst"),
-            ("Vyhlazení výkonu", c.power_smoothing_s, "s", "e_psmooth"),
-            ("Vyhlazení tepu", c.hr_smoothing_s, "s", "e_hsmooth"),
-            ("Prodleva před snížením", c.down_delay_s, "s", "e_delay"),
-            ("Dofukování po tréninku", round(c.cooldown_s / 60, 1), "min", "e_cool_min"),
-            ("…na stupni", c.cooldown_level, "", "e_cool_lvl"),
-            ("Bez dat ze senzorů stupeň", c.no_data_level, "", "e_nodata_lvl"),
-            ("…po", c.no_data_s, "s", "e_nodata_s"),
-            ("Předstih: výkon nad prahem", c.lead_s, "s", "e_lead_s"),
+            (_("Hystereze výkonu"), c.power_hysteresis, "W", "e_physt"),
+            (_("Hystereze tepu"), c.hr_hysteresis, "bpm", "e_hhyst"),
+            (_("Vyhlazení výkonu"), c.power_smoothing_s, "s", "e_psmooth"),
+            (_("Vyhlazení tepu"), c.hr_smoothing_s, "s", "e_hsmooth"),
+            (_("Prodleva před snížením"), c.down_delay_s, "s", "e_delay"),
+            (_("Dofukování po tréninku"), round(c.cooldown_s / 60, 1), "min", "e_cool_min"),
+            (_("…na stupni"), c.cooldown_level, "", "e_cool_lvl"),
+            (_("Bez dat ze senzorů stupeň"), c.no_data_level, "", "e_nodata_lvl"),
+            (_("…po"), c.no_data_s, "s", "e_nodata_s"),
+            (_("Předstih: výkon nad prahem"), c.lead_s, "s", "e_lead_s"),
         ]
         for i, (label, val, unit, attr) in enumerate(rows):
             ttk.Label(g, text=label).grid(row=i, column=0, sticky="w", pady=2)
@@ -745,39 +758,44 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
             self._lbl(g, unit).grid(row=i, column=2, sticky="w")
             setattr(self, attr, e)
         self.lead_var = tk.BooleanVar(value=c.lead_enabled)
-        ttk.Checkbutton(p, text="Předstih: při nástupu výkonu zvýšit stupeň hned",
+        ttk.Checkbutton(p, text=_("Předstih: při nástupu výkonu zvýšit stupeň hned"),
                         variable=self.lead_var, command=self.on_apply).pack(anchor="w", pady=(8, 0))
         self.lbl_beh_err = self._lbl(p, "", fg=BAD, font=self.fonts.body, anchor="w")
         self.lbl_beh_err.pack(fill="x", pady=(8, 0))
-        self._lbl(p, "Hystereze: stupeň klesne, až hodnota spadne o tolik pod práh. Prodleva: jak dlouho "
+        self._lbl(p, _("Hystereze: stupeň klesne, až hodnota spadne o tolik pod práh. Prodleva: jak dlouho "
                      "musí být pod prahem. Chytrý režim navíc drží stupeň podle tepu, takže ventilátor "
                      "nezpomalí v krátkém odpočinku mezi intervaly. Předstih: když okamžitý výkon drží "
-                     "nad prahem vyššího stupně zadaný počet sekund, stupeň naskočí hned, ne až po průměru.",
+                     "nad prahem vyššího stupně zadaný počet sekund, stupeň naskočí hned, ne až po průměru."),
                   anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(4, 0))
 
     # --- Vzhled
     def _page_look(self, p):
-        self._page_head(p, "Vzhled", "Tmavý motiv méně oslňuje při jízdě v šeru.")
+        self._page_head(p, _("Vzhled"), _("Tmavý motiv méně oslňuje při jízdě v šeru."))
         for key, text in THEMES:
-            ttk.Radiobutton(p, text=text, variable=self.theme_var, value=key,
+            ttk.Radiobutton(p, text=_(text), variable=self.theme_var, value=key,
                             command=self.on_theme).pack(anchor="w", pady=2)
-        self._lbl(p, "Podle systému: řídí se nastavením " + (
-            "macOS (Nastavení systému → Vzhled)." if sys.platform == "darwin"
-            else "Windows (Přizpůsobení → Barvy)."),
+        self._lbl(p, _("Podle systému: řídí se nastavením ") + (
+            _("macOS (Nastavení systému → Vzhled).") if sys.platform == "darwin"
+            else _("Windows (Přizpůsobení → Barvy).")),
                   anchor="w").pack(fill="x", pady=(8, 0))
+        self._lbl(p, _("Jazyk"), fg=TEXT, font=self.fonts.body_b, anchor="w").pack(fill="x", pady=(14, 2))
+        self.lang_var = tk.StringVar(value=self.cfg.language if self.cfg.language in i18n.LANGUAGES else "auto")
+        for key, text in (("auto", _("Podle systému")), ("cs", "Čeština"), ("en", "English")):
+            ttk.Radiobutton(p, text=text, variable=self.lang_var, value=key,
+                            command=self.on_language).pack(anchor="w", pady=2)
         overlay.build_settings(self, p)
 
     # --- Mobil
     def _page_mobile(self, p):
-        self._page_head(p, "Mobil", "Hodnoty a přepínač stupně na telefonu ve stejné Wi-Fi. "
-                                    "Stačí otevřít adresu v prohlížeči, nic se neinstaluje.")
+        self._page_head(p, _("Mobil"), _("Hodnoty a přepínač stupně na telefonu ve stejné Wi-Fi. "
+                                    "Stačí otevřít adresu v prohlížeči, nic se neinstaluje."))
         self.web_var = tk.BooleanVar(value=self.web_on)
-        ttk.Checkbutton(p, text="Zapnuto", variable=self.web_var,
+        ttk.Checkbutton(p, text=_("Zapnuto"), variable=self.web_var,
                         command=self.on_web_toggle).pack(anchor="w")
         self.web_auto_var = tk.BooleanVar(value=self.cfg.web_autostart)
-        ttk.Checkbutton(p, text="Zapnout hned po spuštění programu", variable=self.web_auto_var,
+        ttk.Checkbutton(p, text=_("Zapnout hned po spuštění programu"), variable=self.web_auto_var,
                         command=self.on_web_autostart).pack(anchor="w")
-        self._lbl(p, "Jinak se zapíná tlačítkem Zapnout mobil v hlavním okně a po zavření programu se vypne.",
+        self._lbl(p, _("Jinak se zapíná tlačítkem Zapnout mobil v hlavním okně a po zavření programu se vypne."),
                   anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(2, 0))
         row = tk.Frame(p, bg=BG)
         row.pack(fill="x", pady=(8, 0))
@@ -796,38 +814,38 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         self.qr_canvas.pack(side="left", anchor="n", padx=(0, 14))
         right = tk.Frame(box, bg=BG)
         right.pack(side="left", fill="both", expand=True)
-        self._lbl(right, "Adresa", fg=TEXT, font=self.fonts.body_b, anchor="w").pack(fill="x")
+        self._lbl(right, _("Adresa"), fg=TEXT, font=self.fonts.body_b, anchor="w").pack(fill="x")
         self.e_web_url = ttk.Entry(right, width=44)
         self.e_web_url.pack(fill="x", pady=(2, 6))
         bf = tk.Frame(right, bg=BG)
         bf.pack(fill="x")
-        ttk.Button(bf, text="Zkopírovat adresu", command=self.on_web_copy).pack(side="left")
-        ttk.Button(bf, text="Nový klíč", command=self.on_web_new_key).pack(side="left", padx=8)
-        self._lbl(right, "Kdo zná adresu, může ventilátor ovládat. Nový klíč starou adresu zneplatní.",
+        ttk.Button(bf, text=_("Zkopírovat adresu"), command=self.on_web_copy).pack(side="left")
+        ttk.Button(bf, text=_("Nový klíč"), command=self.on_web_new_key).pack(side="left", padx=8)
+        self._lbl(right, _("Kdo zná adresu, může ventilátor ovládat. Nový klíč starou adresu zneplatní."),
                   anchor="w", justify="left", wraplength=int(300 * self.px)).pack(fill="x", pady=(8, 0))
-        self._lbl(p, "Windows se při prvním zapnutí zeptá, zda AntFan smí do sítě. Povolte soukromé "
-                     "sítě, jinak se telefon nepřipojí.",
+        self._lbl(p, _("Windows se při prvním zapnutí zeptá, zda AntFan smí do sítě. Povolte soukromé "
+                     "sítě, jinak se telefon nepřipojí."),
                   anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(12, 0))
         self._web_refresh_page()
 
     # --- Diagnostika
     def _page_diag(self, p):
-        self._page_head(p, "Diagnostika", "Když něco nefunguje.")
-        self._lbl(p, "Stav donglu", fg=TEXT, font=self.fonts.body_b, anchor="w").pack(fill="x")
+        self._page_head(p, _("Diagnostika"), _("Když něco nefunguje."))
+        self._lbl(p, _("Stav donglu"), fg=TEXT, font=self.fonts.body_b, anchor="w").pack(fill="x")
         self.lbl_diag_status = self._lbl(p, "", font=self.fonts.body, anchor="w", justify="left",
                                          wraplength=int(440 * self.px))
         self.lbl_diag_status.pack(fill="x", pady=(2, 6))
-        ttk.Button(p, text="Resetovat dongle", command=self.on_reset).pack(anchor="w")
-        self._lbl(p, "Uvolní dongle a provede USB reset, jako byste ho vytáhli a znovu zapojili.",
+        ttk.Button(p, text=_("Resetovat dongle"), command=self.on_reset).pack(anchor="w")
+        self._lbl(p, _("Uvolní dongle a provede USB reset, jako byste ho vytáhli a znovu zapojili."),
                   anchor="w").pack(fill="x", pady=(2, 12))
-        self._lbl(p, "Příjem senzorů", fg=TEXT, font=self.fonts.body_b, anchor="w").pack(fill="x")
+        self._lbl(p, _("Příjem senzorů"), fg=TEXT, font=self.fonts.body_b, anchor="w").pack(fill="x")
         self.lbl_diag_rx = self._lbl(p, "", font=self.fonts.body, anchor="w", justify="left",
                                      wraplength=int(440 * self.px))
         self.lbl_diag_rx.pack(fill="x", pady=(2, 12))
-        ttk.Button(p, text="Otevřít složku s logem", command=self.on_open_logs).pack(anchor="w")
-        self._lbl(p, "Soubor antfan.log pošlete, když chcete poradit s problémem. Token v něm není.",
+        ttk.Button(p, text=_("Otevřít složku s logem"), command=self.on_open_logs).pack(anchor="w")
+        self._lbl(p, _("Soubor antfan.log pošlete, když chcete poradit s problémem. Token v něm není."),
                   anchor="w").pack(fill="x", pady=(2, 12))
-        ttk.Checkbutton(p, text="Simulace (bez donglu a ventilátoru)", variable=self.sim_var,
+        ttk.Checkbutton(p, text=_("Simulace (bez donglu a ventilátoru)"), variable=self.sim_var,
                         command=self.on_sim_toggle).pack(anchor="w")
         self._lbl(p, f"AntFan {__version__}", fg=FAINT, anchor="w").pack(fill="x", pady=(14, 0))
 
@@ -862,9 +880,9 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         pth = [int(e.get()) for e in self.e_pthr]
         hth = [int(e.get()) for e in self.e_hthr]
         if pth != sorted(pth) or hth != sorted(hth):
-            raise ValueError("Prahy musí stoupat: stupeň 1 < 2 < 3.")
+            raise ValueError(_("Prahy musí stoupat: stupeň 1 < 2 < 3."))
         if min(pth + hth) <= 0:
-            raise ValueError("Prahy musí být kladné.")
+            raise ValueError(_("Prahy musí být kladné."))
         return pth, hth
 
     def _update_thr_hints(self):
@@ -925,7 +943,7 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
             mode = self.thr_mode.get()
             if mode == "relative":
                 if max(pth) > 200 or max(hth) > 100:
-                    raise ValueError("Výkon nejvýš 200 % FTP, tep nejvýš 100 % max. tepu.")
+                    raise ValueError(_("Výkon nejvýš 200 % FTP, tep nejvýš 100 % max. tepu."))
                 c.power_pct, c.hr_pct = pth, hth
             else:
                 c.power_thresholds, c.hr_thresholds = pth, hth
@@ -945,9 +963,9 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
             c.lead_s = max(1.0, min(10.0, float(self.e_lead_s.get().replace(",", "."))))
             c.lead_enabled = self.lead_var.get()
         except ValueError as e:
-            msg = str(e) if "Prahy" in str(e) or "nejvýš" in str(e) or "km/h" in str(e) else "Zadejte čísla."
-            self.lbl_ctrl_err.configure(text=f"Neuloženo: {msg}")
-            self.lbl_beh_err.configure(text=f"Neuloženo: {msg}")
+            msg = _("Zadejte čísla.") if str(e).startswith(("invalid literal", "could not convert")) else str(e)
+            self.lbl_ctrl_err.configure(text=_("Neuloženo: {msg}").format(msg=msg))
+            self.lbl_beh_err.configure(text=_("Neuloženo: {msg}").format(msg=msg))
             return False
         c.source_mode = self.source_mode
         config_mod.save(self.cfg)
@@ -972,18 +990,18 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         if f.kind == "homeassistant":
             return HomeAssistantFan(f)
         if not (f.ip and f.token):
-            raise FanError("Zadejte IP adresu a token ventilátoru, nebo je získejte z účtu Xiaomi.")
+            raise FanError(_("Zadejte IP adresu a token ventilátoru, nebo je získejte z účtu Xiaomi."))
         return XiaomiFan(f)
 
     def _make_fan(self):
         f = self.cfg.fan
         if self.sim_var.get():
             self.fan_worker.configure(SimulatedFan(f))
-            self._set_fan_status("simulovaný ventilátor", True)
+            self._set_fan_status(_("simulovaný ventilátor"), True)
             return
         try:
             self.fan_worker.configure(self._fan_driver(f))
-            self._set_fan_status("připojuji…", True)
+            self._set_fan_status(_("připojuji…"), True)
         except (MiioError, FanError, ValueError) as e:
             self.fan_worker.configure(None)
             self._set_fan_status(str(e), False)
@@ -1014,8 +1032,8 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         devs = [self.devices[k] for k in self.selected if k in self.devices]
         if not devs:
             self.open_settings("sensors")
-            self.lbl_sensor_hint.configure(text="Nejdřív vyhledejte senzory a kliknutím vyberte "
-                                                "tepový pás a trenažér nebo powermetr.")
+            self.lbl_sensor_hint.configure(text=_("Nejdřív vyhledejte senzory a kliknutím vyberte "
+                                                "tepový pás a trenažér nebo powermetr."))
             return
         self._ant_error = False
         self.controller.reset()
@@ -1037,7 +1055,7 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
             else:
                 subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", d])
         except Exception as e:  # noqa: BLE001
-            messagebox.showinfo("AntFan", f"Log je ve složce:\n{d}\n\n({e})")
+            messagebox.showinfo("AntFan", _("Log je ve složce:\n{d}\n\n({e})").format(d=d, e=e))
 
     def on_sim_toggle(self):
         self.cfg.simulation = self.sim_var.get()
@@ -1056,7 +1074,7 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         if key in self.selected:
             self.selected.discard(key)
         elif len(self.selected) >= MAX_CHANNELS:
-            self.lbl_sensor_hint.configure(text=f"Najednou nejvýš {MAX_CHANNELS} senzorů.")
+            self.lbl_sensor_hint.configure(text=_("Najednou nejvýš {MAX_CHANNELS} senzorů.").format(MAX_CHANNELS=MAX_CHANNELS))
             return
         else:
             self.selected.add(key)
@@ -1092,12 +1110,12 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         config_mod.save(self.cfg)
         self._make_fan()
         if restart_needed:
-            messagebox.showinfo("AntFan", "Počet stupňů se projeví po restartu programu.")
+            messagebox.showinfo("AntFan", _("Počet stupňů se projeví po restartu programu."))
 
     def on_fan_test(self):
         self.on_fan_save()
         if self.sim_var.get():
-            self._set_fan_status("Simulace: OK", True)
+            self._set_fan_status(_("Simulace: OK"), True)
             return
         f = self.cfg.fan
 
@@ -1107,9 +1125,8 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
                 info = fan.info()
                 power, level = fan.get_state()
                 note = getattr(fan, "note", None)
-                msg = (f"Ventilátor odpovídá: {info.get('model', '?')} (firmware {info.get('fw_ver', '?')}), "
-                       f"{'zapnutý' if power else 'vypnutý'}, stupeň {level if power else 0}."
-                       + (f" Ovládání: {note}." if note else ""))
+                msg = (_("Ventilátor odpovídá: {v} (firmware {v2}), {v3}, stupeň {v4}.").format(v=info.get('model', '?'), v2=info.get('fw_ver', '?'), v3=_('zapnutý') if power else _('vypnutý'), v4=level if power else 0)
+                       + (_(" Ovládání: {note}.").format(note=note) if note else ""))
                 if f.kind == "xiaomi" and info.get("model"):
                     f.model = str(info["model"])
                     config_mod.save(self.cfg)
@@ -1118,7 +1135,7 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
                 self.events.put(("fan", False, str(e), None))
 
         threading.Thread(target=run, daemon=True).start()
-        self._set_fan_status("Zkouším spojení…", True)
+        self._set_fan_status(_("Zkouším spojení…"), True)
 
     def on_segment(self, key):
         if key == "auto":
@@ -1148,7 +1165,7 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
                     self.web.start(c.web_port, c.web_key)
                 except OSError as e:
                     log.warning("Web pro mobil nejde spustit: %s", e)
-                    self.web_error = f"Port {c.web_port} nejde použít (obsazený?). Zvolte jiný."
+                    self.web_error = _("Port {web_port} nejde použít (obsazený?). Zvolte jiný.").format(web_port=c.web_port)
                     self.web_on = False
         else:
             self.web.stop()
@@ -1159,11 +1176,11 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
 
     def _web_refresh_page(self):
         if hasattr(self, "btn_web"):  # hlavní okno
-            self.btn_web.configure(text="Vypnout mobil" if self.web.running else "Zapnout mobil")
+            self.btn_web.configure(text=_("Vypnout mobil") if self.web.running else _("Zapnout mobil"))
             if self.web.running:
-                self.st_web.set("Mobil zapnutý", OK)
+                self.st_web.set(_("Mobil zapnutý"), OK)
             elif self.web_error:
-                self.st_web.set("Mobil: chyba", BAD)
+                self.st_web.set(_("Mobil: chyba"), BAD)
             else:
                 self.st_web.set("", BG)
         if not hasattr(self, "lbl_web_status"):
@@ -1173,9 +1190,9 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         if self.web_error:
             text, col = self.web_error, BAD
         elif url:
-            text, col = f"Běží na portu {self.web.port}. Otevřete adresu v telefonu nebo načtěte QR kód.", OK
+            text, col = _("Běží na portu {port}. Otevřete adresu v telefonu nebo načtěte QR kód.").format(port=self.web.port), OK
         else:
-            text, col = "Vypnuto.", MUTED
+            text, col = _("Vypnuto."), MUTED
         self.lbl_web_status.configure(text=text, fg=col)
         self.e_web_url.configure(state="normal")
         self.e_web_url.delete(0, "end")
@@ -1227,7 +1244,7 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
             if not 1024 <= port <= 65535:
                 raise ValueError
         except ValueError:
-            self.lbl_web_status.configure(text="Port musí být číslo 1024–65535.", fg=BAD)
+            self.lbl_web_status.configure(text=_("Port musí být číslo 1024–65535."), fg=BAD)
             return
         if port != self.cfg.web_port:
             self.cfg.web_port = port
@@ -1242,11 +1259,11 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
     def on_web_copy(self):
         url = self._web_url()
         if not url:
-            self.lbl_web_status.configure(text="Nejdřív ovládání z mobilu povolte.", fg=BAD)
+            self.lbl_web_status.configure(text=_("Nejdřív ovládání z mobilu povolte."), fg=BAD)
             return
         self.root.clipboard_clear()
         self.root.clipboard_append(url)
-        self.lbl_web_status.configure(text="Adresa zkopírována.", fg=OK)
+        self.lbl_web_status.configure(text=_("Adresa zkopírována."), fg=OK)
 
     def _web_publish(self, desired, reason, status, status_col):
         """Snímek stavu pro server (volá _tick v hlavním vlákně)."""
@@ -1265,9 +1282,9 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
             rx.append({"name": d.type_name if d else str(key[0]), "q": q})
         hint = self.lbl_ride_hint.cget("text")
         if not self.sim_var.get() and not self.fan_ok:
-            hint = ("Ventilátor nepřipojen. " + hint).strip()
+            hint = (_("Ventilátor nepřipojen. ") + hint).strip()
         try:  # slabá baterie senzorů (stejně jako lišta)
-            batt = [x for x in overlay.overlay_state(self)["alerts"] if x.startswith("Slabá baterie")]
+            batt = [x for x in overlay.overlay_state(self)["alerts"] if x.startswith(_("Slabá baterie"))]
         except Exception:  # noqa: BLE001
             batt = []
         if batt:
@@ -1305,17 +1322,17 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         self._drink_shown = None
 
     def _page_drink(self, p):
-        self._page_head(p, "Pití", "Nenápadná připomínka pod grafem během jízdy. Interval a množství "
-                                   "se řídí délkou jízdy, výkonem a teplotou v místnosti.")
+        self._page_head(p, _("Pití"), _("Nenápadná připomínka pod grafem během jízdy. Interval a množství "
+                                   "se řídí délkou jízdy, výkonem a teplotou v místnosti."))
         self.drink_var = tk.BooleanVar(value=self.cfg.drink_enabled)
-        ttk.Checkbutton(p, text="Připomínat pití", variable=self.drink_var,
+        ttk.Checkbutton(p, text=_("Připomínat pití"), variable=self.drink_var,
                         command=self._drink_apply).pack(anchor="w")
         g = tk.Frame(p, bg=BG)
         g.pack(fill="x", pady=(8, 0))
         t = self.cfg.drink_temp_c
-        rows = (("Teplota v místnosti", "" if t is None else f"{t:g}", "°C, prázdné = nepočítat", "e_drink_temp"),
-                ("Interval", f"{self.cfg.drink_interval_min:g}" if self.cfg.drink_interval_min else "",
-                 "min, prázdné = automaticky", "e_drink_int"))
+        rows = ((_("Teplota v místnosti"), "" if t is None else f"{t:g}", _("°C, prázdné = nepočítat"), "e_drink_temp"),
+                (_("Interval"), f"{self.cfg.drink_interval_min:g}" if self.cfg.drink_interval_min else "",
+                 _("min, prázdné = automaticky"), "e_drink_int"))
         for i, (label, val, unit, attr) in enumerate(rows):
             ttk.Label(g, text=label).grid(row=i, column=0, sticky="w", pady=2)
             e = ttk.Entry(g, width=6, justify="center")
@@ -1329,9 +1346,9 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         self.lbl_drink_err.pack(fill="x", pady=(8, 0))
         self.lbl_drink_now = self._lbl(p, "", font=self.fonts.body, anchor="w")
         self.lbl_drink_now.pack(fill="x")
-        self._lbl(p, "Počítá jen během měření, když šlapete. Základ je zhruba 500 ml za hodinu, při vyšším "
+        self._lbl(p, _("Počítá jen během měření, když šlapete. Základ je zhruba 500 ml za hodinu, při vyšším "
                      "výkonu až 750 ml, nad 22 °C víc. Jen orientační hodnoty, řiďte se i žízní. "
-                     "Připomínka zmizí kliknutím nebo po minutě.",
+                     "Připomínka zmizí kliknutím nebo po minutě."),
                   anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(4, 0))
 
     def _drink_schedule(self):
@@ -1347,7 +1364,7 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
             temp = drink.parse_temp(self.e_drink_temp.get())
             interval = drink.parse_interval(self.e_drink_int.get())
         except ValueError as e:
-            self.lbl_drink_err.configure(text=f"Neuloženo: {e}" if "–" in str(e) else "Neuloženo: Zadejte čísla.")
+            self.lbl_drink_err.configure(text=_("Neuloženo: {e}").format(e=e) if "–" in str(e) else _("Neuloženo: Zadejte čísla."))
             return
         except tk.TclError:
             return
@@ -1383,7 +1400,7 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         rem = self.drink.update(now, self.backend.state == "monitoring", ctrl.power_now,
                                 ctrl.cadence_now, ctrl.hr_now)
         self._drink_show(rem)
-        txt = ("Teď: " + self.drink.summary()) if self.drink.enabled else ""
+        txt = (_("Teď: ") + self.drink.summary()) if self.drink.enabled else ""
         if self.lbl_drink_now.cget("text") != txt:
             self.lbl_drink_now.configure(text=txt)
 
@@ -1404,7 +1421,7 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
                 if kind == "ant_status":
                     self.ant_status_full = ev[1]
                     self.lbl_scan.configure(text=ev[1] if self.backend.state == "scanning" or
-                                            "Vyhledávání" in ev[1] else "")
+                                            _("Vyhledávání") in ev[1] else "")
                 elif kind == "ant_error":
                     self._ant_error = True
                     self.ant_status_full = ev[1]
@@ -1421,7 +1438,7 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
                         self.dev_values[d.key] = (time.monotonic(), d.last_value)
                     tree_dirty = True
                 elif kind == "value":
-                    _, key, vkind, value, cad = ev
+                    _u, key, vkind, value, cad = ev
                     now = time.monotonic()
                     if vkind == "speed":  # rychlost jízdy (vítr), ne do seznamu senzorů
                         self.controller.feed(vkind, value)
@@ -1442,7 +1459,7 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
                 elif kind == "coex":
                     self._coex_on_event(ev[1])
                 elif kind == "fan":
-                    _, ok, text, actual = ev
+                    _u, ok, text, actual = ev
                     if actual is not None:
                         self.fan_actual = actual
                     self._set_fan_status(text, ok)
@@ -1498,7 +1515,7 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
             d = self.devices.get(key)
             name = d.type_name if d else str(key[0])
             low = self.batt_low(key)
-            items.append((f"{name}  {'…' if q is None else f'{q} %'}" + (" · slabá baterie" if low else ""),
+            items.append((f"{name}  {'…' if q is None else f'{q} %'}" + (_(" · slabá baterie") if low else ""),
                           BAD if low or (q is not None and q < 80) else MUTED))
         while len(self.rx_labels) < len(items):
             lb = self._lbl(self.rx_box, "", font=self.fonts.body)
@@ -1516,54 +1533,52 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         except Exception:  # noqa: BLE001
             all_n, single = 0, {}
         if all_n >= 2:
-            hints.append(f"Výpadky na všech senzorech zároveň ({all_n}× za 5 min). Příčina je v PC: "
-                         "zkuste jiný USB port (USB 2.0, ne hub), prodlužovačku nebo jiný dongle.")
+            hints.append(_("Výpadky na všech senzorech zároveň ({all_n}× za 5 min). Příčina je v PC: zkuste jiný USB port (USB 2.0, ne hub), prodlužovačku nebo jiný dongle.").format(all_n=all_n))
         if single:
             who = ", ".join(f"{k} {n}×" for k, n in single.items())
-            hints.append(f"Vypadává jen {who} za 5 min, ostatní senzory jdou. Příčina je u senzoru: "
-                         "Bluetooth spojení s Rouvy, baterie, kontakt pásu.")
+            hints.append(_("Vypadává jen {who} za 5 min, ostatní senzory jdou. Příčina je u senzoru: Bluetooth spojení s Rouvy, baterie, kontakt pásu.").format(who=who))
         if weak and not hints:
-            hints.append("Slabý příjem: " + ", ".join(weak) + ". Dejte dongle blíž ke kolu.")
+            hints.append(_("Slabý příjem: ") + ", ".join(weak) + _(". Dejte dongle blíž ke kolu."))
         text = "\n".join(hints)
         if self.lbl_ride_hint.cget("text") != text:
             self.lbl_ride_hint.configure(text=text)
         if self.lbl_sensor_hint.cget("text") != text and (text or self.lbl_sensor_hint.cget("fg") == BAD):
             self.lbl_sensor_hint.configure(text=text)
         if rxq:
-            self.lbl_diag_rx.configure(text=text or "Bez výpadků za posledních 5 minut.")
+            self.lbl_diag_rx.configure(text=text or _("Bez výpadků za posledních 5 minut."))
         else:
-            self.lbl_diag_rx.configure(text="Měření neběží.")
+            self.lbl_diag_rx.configure(text=_("Měření neběží."))
 
     def _status_short(self):
         st = self.backend.state
         n = len(self.selected)
         if st == "monitoring":
-            return f"Měřím · {n} {_plural_senzor(n)}", OK
+            return _("Měřím · {n} {v}").format(n=n, v=_plural_senzor(n)), OK
         if st == "scanning":
-            return "Hledám senzory…", ACCENT
+            return _("Hledám senzory…"), ACCENT
         if st == "unplugged":
-            return "Dongle odpojen", BAD
+            return _("Dongle odpojen"), BAD
         if self._ant_error:
-            return "Chyba ANT+", BAD
-        return ("Simulace" if self.sim_var.get() else "Připraveno"), FAINT
+            return _("Chyba ANT+"), BAD
+        return (_("Simulace") if self.sim_var.get() else _("Připraveno")), FAINT
 
     def _reason_text(self, ctrl, desired):
         c = self.cfg.control
         n = self.cfg.fan.max_level
         if not self.auto_var.get():
-            return "ručně"
+            return _("ručně")
         if self.backend.state != "monitoring":
-            return "čeká na měření"
+            return _("čeká na měření")
         r = ctrl.reason
         pl, hl = c.power_levels()[:n], c.hr_levels()[:n]
         if ctrl.pct is not None:
             return r
-        if r == "předstih" and pl:
-            return f"předstih · výkon nad {pl[desired - 1]} W" if desired > 0 else r
-        if r == "výkon" and pl:
-            return f"výkon nad prahem {pl[desired - 1]} W" if desired > 0 else f"výkon pod prahem {pl[0]} W"
-        if r == "tep" and hl:
-            return f"tep nad prahem {hl[desired - 1]} bpm" if desired > 0 else f"tep pod prahem {hl[0]} bpm"
+        if r == _("předstih") and pl:
+            return _("předstih · výkon nad {v} W").format(v=pl[desired - 1]) if desired > 0 else r
+        if r == _("výkon") and pl:
+            return _("výkon nad prahem {v} W").format(v=pl[desired - 1]) if desired > 0 else _("výkon pod prahem {v} W").format(v=pl[0])
+        if r == _("tep") and hl:
+            return _("tep nad prahem {v} bpm").format(v=hl[desired - 1]) if desired > 0 else _("tep pod prahem {v} bpm").format(v=hl[0])
         return r
 
     def _tick(self):
@@ -1586,14 +1601,14 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         c = self.cfg.control
         p = ctrl.power_smoothed
         self.t_power["big"].configure(text="–" if p is None else f"{p:.0f}")
-        self.t_power["head"].configure(text=f"Výkon · průměr {c.power_smoothing_s:g} s")
+        self.t_power["head"].configure(text=_("Výkon · průměr {power_smoothing_s:g} s").format(power_smoothing_s=c.power_smoothing_s))
         sub = []
         if p is not None and c.ftp:
             sub.append(f"{p / c.ftp * 100:.0f} % FTP")
         if ctrl.cadence_now:
             sub.append(f"{ctrl.cadence_now} rpm")
         if ctrl.power_gap_s:
-            sub.append(f"výpadek příjmu {ctrl.power_gap_s:.0f} s")
+            sub.append(_("výpadek příjmu {power_gap_s:.0f} s").format(power_gap_s=ctrl.power_gap_s))
         self.t_power["sub"].configure(text=" · ".join(sub), fg=BAD if ctrl.power_gap_s else MUTED)
         self.t_hr["big"].configure(text="–" if ctrl.hr_now is None else str(ctrl.hr_now))
         self.t_hr["sub"].configure(text="" if ctrl.hr_now is None or not c.hr_max else
@@ -1601,23 +1616,23 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
         if vitr_ui.update_fan_tile(self, desired):  # výstup v % kreslí vitr_ui
             reason = self.t_fan["sub"].cget("text")
         else:
-            self.t_fan["big"].configure(text="Vyp" if desired == 0 else str(desired))
+            self.t_fan["big"].configure(text=_("Vyp") if desired == 0 else str(desired))
             self._draw_bars(desired)
             reason = self._reason_text(ctrl, desired)
             if self.fan_actual is not None and self.fan_worker is not None and self.fan_actual != desired \
                     and (self.backend.state == "monitoring" or not self.auto_var.get()):
-                reason += f" · ventilátor zatím na {'Vyp' if self.fan_actual == 0 else self.fan_actual}"
+                reason += _(" · ventilátor zatím na {v}").format(v=_('Vyp') if self.fan_actual == 0 else self.fan_actual)
             self.t_fan["sub"].configure(text=reason)
 
         text, col = self._status_short()
         self.st_ant.set(text, col)
         if self.sim_var.get():
-            self.st_fan.set("Simulovaný ventilátor", FAINT)
+            self.st_fan.set(_("Simulovaný ventilátor"), FAINT)
         else:
-            self.st_fan.set("Ventilátor připojen" if self.fan_ok else "Ventilátor nepřipojen",
+            self.st_fan.set(_("Ventilátor připojen") if self.fan_ok else _("Ventilátor nepřipojen"),
                             OK if self.fan_ok else BAD)
         running = self.backend.state in ("monitoring", "unplugged")
-        want = "Zastavit" if running else "Spustit měření"
+        want = _("Zastavit") if running else _("Spustit měření")
         if self.btn_run.cget("text") != want:
             self.btn_run.configure(text=want)
         self.lbl_diag_status.configure(text=self.ant_status_full)
@@ -1709,7 +1724,7 @@ class App(ProfilesMixin, RideMixin, PairingUi, BatteryUIMixin):
 
     def _on_close(self):
         try:
-            self.st_ant.set("Uvolňuji dongle…", FAINT)
+            self.st_ant.set(_("Uvolňuji dongle…"), FAINT)
             self.root.update_idletasks()
             self._ride_finish(show=False)
             self._cleanup()
@@ -1729,25 +1744,22 @@ def _check_single_instance(inst: SingleInstance) -> bool:
         p == pid and usb_diag.is_antfan_process(n, c) for p, n, c in procs)
     if not verified:
         messagebox.showwarning(
-            "AntFan už běží",
-            f"AntFan už běží. Pokud jeho okno nevidíte, ukončete ho {usb_diag.task_manager_hint()} "
-            "a spusťte program znovu.")
+            _("AntFan už běží"),
+            _("AntFan už běží. Pokud jeho okno nevidíte, ukončete ho {v} a spusťte program znovu.").format(v=usb_diag.task_manager_hint()))
         root.destroy()
         return False
     if not messagebox.askyesno(
-            "AntFan už běží",
-            f"AntFan už běží (PID {pid}). Pokud jeho okno nevidíte, nejspíš visí na pozadí "
-            "a drží ANT+ dongle – proto pak dongle hlásí, že je připojen k jiné aplikaci.\n\n"
-            "Ukončit starou instanci a pokračovat?"):
+            _("AntFan už běží"),
+            _("AntFan už běží (PID {pid}). Pokud jeho okno nevidíte, nejspíš visí na pozadí a drží ANT+ dongle – proto pak dongle hlásí, že je připojen k jiné aplikaci.\n\nUkončit starou instanci a pokračovat?").format(pid=pid)):
         root.destroy()
         return False
     usb_diag.kill_process(pid)
-    for _ in range(20):
+    for _u in range(20):
         time.sleep(0.25)
         if inst.acquire():
             root.destroy()
             return True
-    messagebox.showerror("AntFan", f"Starou instanci se nepodařilo ukončit. Zkuste {usb_diag.task_manager_name()}.")
+    messagebox.showerror("AntFan", _("Starou instanci se nepodařilo ukončit. Zkuste {v}.").format(v=usb_diag.task_manager_name()))
     root.destroy()
     return False
 
@@ -1768,6 +1780,7 @@ def main():
         windll.shcore.SetProcessDpiAwareness(1)
     except Exception:  # noqa: BLE001
         pass
+    i18n.set_language(config_mod.load().language)
     inst = SingleInstance()
     if not _check_single_instance(inst):
         return

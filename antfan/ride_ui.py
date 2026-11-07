@@ -17,6 +17,7 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 
 from . import ride
+from .i18n import _
 
 log = logging.getLogger("antfan.ride")
 
@@ -45,7 +46,7 @@ def open_folder(path) -> None:
         else:
             subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", d])
     except Exception as e:  # noqa: BLE001
-        messagebox.showinfo("AntFan", f"Jízdy jsou ve složce:\n{d}\n\n({e})")
+        messagebox.showinfo("AntFan", _("Jízdy jsou ve složce:\n{d}\n\n({e})").format(d=d, e=e))
 
 
 class RideMixin:
@@ -66,7 +67,7 @@ class RideMixin:
             if self.ride_rec is None:
                 # po automatickém konci čekat, až se zase začne šlapat
                 if self._ride_wait_activity and (getattr(ctrl, "_raw_level", 0) <= 0
-                                                 or ctrl.reason == "žádná data ze senzorů"):
+                                                 or ctrl.reason == _("žádná data ze senzorů")):
                     return
                 self._ride_wait_activity = False
                 self.ride_rec = ride.RideRecorder()
@@ -74,7 +75,7 @@ class RideMixin:
             c = self.cfg.control
             self.ride_rec.add(now, ctrl.power_now, ctrl.power_smoothed, ctrl.cadence_now, ctrl.hr_now,
                               self._ride_level(), c.ftp, c.hr_max)
-            cooling = ctrl.reason.startswith("dofukování")
+            cooling = ctrl.reason.startswith(_("dofukování"))
             if self._ride_cooling and not cooling and getattr(ctrl, "_raw_level", 0) <= 0:
                 self._ride_finish()
                 self._ride_wait_activity = True
@@ -121,7 +122,7 @@ class RideMixin:
             self._summary_win.destroy()
         w = self._summary_win = tk.Toplevel(self.root)
         self._summary_state = (stats, path)
-        w.title("Shrnutí jízdy")
+        w.title(_("Shrnutí jízdy"))
         w.configure(bg=A.BG)
 
         def close():
@@ -137,8 +138,8 @@ class RideMixin:
 
         head = tk.Frame(w, bg=A.BG)
         head.pack(fill="x", padx=20, pady=(14, 10))
-        lbl(head, "Shrnutí jízdy", fg=A.TEXT, font=f.h2, anchor="w").pack(fill="x")
-        lbl(head, f"{_date_text(stats.start)} · FTP {stats.ftp} W · max. tep {stats.hr_max} bpm",
+        lbl(head, _("Shrnutí jízdy"), fg=A.TEXT, font=f.h2, anchor="w").pack(fill="x")
+        lbl(head, _("{v} · FTP {ftp} W · max. tep {hr_max} bpm").format(v=_date_text(stats.start), ftp=stats.ftp, hr_max=stats.hr_max),
             anchor="w").pack(fill="x")
         tk.Frame(w, height=1, bg=A.BORDER).pack(fill="x")
 
@@ -147,17 +148,17 @@ class RideMixin:
         tiles.pack(fill="x", padx=20, pady=(10, 6))
         dec = stats.decoupling
         items = [
-            ("Délka", ride.fmt_duration(stats.duration_s), A.TEXT),
-            ("Ø výkon", _num(stats.avg_power, unit="W"), A.POWER),
-            ("Max. výkon", _num(stats.max_power, unit="W"), A.POWER),
+            (_("Délka"), ride.fmt_duration(stats.duration_s), A.TEXT),
+            (_("Ø výkon"), _num(stats.avg_power, unit="W"), A.POWER),
+            (_("Max. výkon"), _num(stats.max_power, unit="W"), A.POWER),
             ("NP", _num(stats.np, unit="W"), A.POWER),
             ("IF", _num(stats.if_, "{:.2f}"), A.TEXT),
             ("TSS", _num(stats.tss), A.TEXT),
-            ("Práce", _num(stats.kj, unit="kJ"), A.TEXT),
-            ("Ø kadence", _num(stats.avg_cadence, unit="rpm"), A.TEXT),
-            ("Ø tep", _num(stats.avg_hr, unit="bpm"), A.HR),
-            ("Max. tep", _num(stats.max_hr, unit="bpm"), A.HR),
-            ("Posun tepu", _num(dec, "{:+.1f}", "%"), A.TEXT if dec is None or dec < 5 else A.BAD),
+            (_("Práce"), _num(stats.kj, unit="kJ"), A.TEXT),
+            (_("Ø kadence"), _num(stats.avg_cadence, unit="rpm"), A.TEXT),
+            (_("Ø tep"), _num(stats.avg_hr, unit="bpm"), A.HR),
+            (_("Max. tep"), _num(stats.max_hr, unit="bpm"), A.HR),
+            (_("Posun tepu"), _num(dec, "{:+.1f}", "%"), A.TEXT if dec is None or dec < 5 else A.BAD),
         ]
         cols = 4
         for i in range(cols):
@@ -182,23 +183,23 @@ class RideMixin:
         bar_w = int(300 * px)
 
         if stats.has_power:
-            rows = [(f"{z} {name}", s) for (z, name, _), s in zip(ride.POWER_ZONES, stats.power_zones)]
-            self._zone_bars(left, "Čas v zónách výkonu", rows, A.POWER, bar_w)
+            rows = [(f"{z} {_(name)}", s) for (z, name, _u), s in zip(ride.POWER_ZONES, stats.power_zones)]
+            self._zone_bars(left, _("Čas v zónách výkonu"), rows, A.POWER, bar_w)
         if stats.has_hr:
-            rows = [(f"{z} {name}", s) for (z, name, _), s in zip(ride.HR_ZONES, stats.hr_zones)]
-            self._zone_bars(right, "Čas v zónách tepu", rows, A.HR, bar_w)
-        rows = [("Vyp" if i == 0 else f"Stupeň {i}", s) for i, s in enumerate(stats.fan_levels)]
-        self._zone_bars(left if stats.has_power else right, "Stupně ventilátoru", rows, A.FAN, bar_w)
+            rows = [(f"{z} {_(name)}", s) for (z, name, _u), s in zip(ride.HR_ZONES, stats.hr_zones)]
+            self._zone_bars(right, _("Čas v zónách tepu"), rows, A.HR, bar_w)
+        rows = [(_("Vyp") if i == 0 else _("Stupeň {i}").format(i=i), s) for i, s in enumerate(stats.fan_levels)]
+        self._zone_bars(left if stats.has_power else right, _("Stupně ventilátoru"), rows, A.FAN, bar_w)
         dec_box = right if stats.has_power else left
-        lbl(dec_box, "Posun tepu", fg=A.TEXT, font=f.body_b, anchor="w").pack(fill="x", pady=(12, 2))
+        lbl(dec_box, _("Posun tepu"), fg=A.TEXT, font=f.body_b, anchor="w").pack(fill="x", pady=(12, 2))
         lbl(dec_box, ride.decoupling_text(dec), anchor="w", justify="left",
             wraplength=bar_w).pack(fill="x")
 
         tk.Frame(w, height=1, bg=A.BORDER).pack(fill="x")
         bf = tk.Frame(w, bg=A.BG)
         bf.pack(fill="x", padx=20, pady=10)
-        ttk.Button(bf, text="Zavřít", command=close).pack(side="right")
-        ttk.Button(bf, text="Otevřít složku", command=lambda: open_folder(ride.rides_dir())).pack(
+        ttk.Button(bf, text=_("Zavřít"), command=close).pack(side="right")
+        ttk.Button(bf, text=_("Otevřít složku"), command=lambda: open_folder(ride.rides_dir())).pack(
             side="right", padx=8)
         if path is not None:
             lbl(bf, path.name, fg=A.FAINT, anchor="w").pack(side="left")
@@ -236,12 +237,12 @@ class RideMixin:
     # ============================================================ stránka Jízdy
     def _page_rides(self, p):
         A = _A()
-        self._page_head(p, "Jízdy", "Každá jízda delší než 5 minut se uloží jako CSV. "
-                                    "Dvojklikem otevřete její shrnutí.")
+        self._page_head(p, _("Jízdy"), _("Každá jízda delší než 5 minut se uloží jako CSV. "
+                                    "Dvojklikem otevřete její shrnutí."))
         cols = ("date", "dur", "pw", "np", "tss", "hr")
         self.rides_tree = ttk.Treeview(p, columns=cols, show="headings", selectmode="browse", height=9)
-        for c, t, wd in (("date", "Začátek", 130), ("dur", "Délka", 70), ("pw", "Ø W", 55),
-                         ("np", "NP", 55), ("tss", "TSS", 50), ("hr", "Ø tep", 55)):
+        for c, t, wd in (("date", _("Začátek"), 130), ("dur", _("Délka"), 70), ("pw", "Ø W", 55),
+                         ("np", "NP", 55), ("tss", "TSS", 50), ("hr", _("Ø tep"), 55)):
             self.rides_tree.heading(c, text=t)
             self.rides_tree.column(c, width=int(wd * self.px), anchor="w" if c == "date" else "center")
         self.rides_tree.pack(fill="x")
@@ -251,8 +252,8 @@ class RideMixin:
         self.lbl_rides_empty.pack(fill="x", pady=(6, 0))
         bf = tk.Frame(p, bg=A.BG)
         bf.pack(fill="x", pady=(8, 0))
-        ttk.Button(bf, text="Otevřít shrnutí", command=self.on_ride_open).pack(side="left")
-        ttk.Button(bf, text="Otevřít složku", command=lambda: open_folder(ride.rides_dir())).pack(
+        ttk.Button(bf, text=_("Otevřít shrnutí"), command=self.on_ride_open).pack(side="left")
+        ttk.Button(bf, text=_("Otevřít složku"), command=lambda: open_folder(ride.rides_dir())).pack(
             side="left", padx=8)
         p.bind("<Map>", lambda e: self._refresh_rides() if e.widget is p else None)
         self._refresh_rides()
@@ -286,7 +287,7 @@ class RideMixin:
                 vals = (_date_text(st.start), ride.fmt_duration(st.duration_s), _num(st.avg_power),
                         _num(st.np), _num(st.tss), _num(st.avg_hr))
             tree.insert("", "end", iid=str(path), values=vals)
-        self.lbl_rides_empty.configure(text="" if files else "Zatím žádná uložená jízda.")
+        self.lbl_rides_empty.configure(text="" if files else _("Zatím žádná uložená jízda."))
 
     def on_ride_open(self):
         tree = getattr(self, "rides_tree", None)
@@ -299,6 +300,6 @@ class RideMixin:
         path = Path(sel[0])
         st = self._ride_stats_cached(path)
         if st is None:
-            messagebox.showerror("AntFan", f"Soubor {path.name} nejde načíst.", parent=self.settings)
+            messagebox.showerror("AntFan", _("Soubor {name} nejde načíst.").format(name=path.name), parent=self.settings)
             return
         self.show_ride_summary(st, path)

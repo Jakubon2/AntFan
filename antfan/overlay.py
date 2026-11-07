@@ -20,8 +20,9 @@ import tkinter as tk
 from tkinter import ttk
 
 from . import config as config_mod
+from .i18n import _, N_
 
-SECOND_OPTS = [("hr_pct", "% max. tepu"), ("zone", "Tepová zóna"), ("none", "Nic")]
+SECOND_OPTS = [("hr_pct", N_("% max. tepu")), ("zone", N_("Tepová zóna")), ("none", N_("Nic"))]
 SIZES = [("mini", "Mini"), ("standard", "Standard")]
 ALERT_SHOW_S = 20.0     # režim jen upozornění: jak dlouho je lišta vidět
 TOPMOST_EVERY_S = 5.0   # Windows: některé hry topmost shazují
@@ -41,14 +42,14 @@ def hr_zone(hr: float | None, hr_max: float | None) -> int | None:
 def short_reason(reason: str) -> str:
     """Krátký důvod z Controller.reason."""
     r = (reason or "").strip()
-    if r.startswith("dofukování"):
-        return r.replace("dofukování ještě", "dofukování")
-    return {"tep drží stupeň": "tep drží", "žádná data ze senzorů": "bez dat",
-            "čekám na data": "čeká na data"}.get(r, r)
+    if r.startswith(_("dofukování")):
+        return r.replace(_("dofukování ještě"), _("dofukování"))
+    return {_("tep drží stupeň"): _("tep drží"), _("žádná data ze senzorů"): _("bez dat"),
+            _("čekám na data"): _("čeká na data")}.get(r, r)
 
 
 def _level_name(level: int) -> str:
-    return "Vyp" if level == 0 else str(level)
+    return _("Vyp") if level == 0 else str(level)
 
 
 def overlay_state(app, now: float | None = None) -> dict:
@@ -62,13 +63,13 @@ def overlay_state(app, now: float | None = None) -> dict:
     level = ctrl.level if auto else app.manual_level
 
     if not auto:
-        level_text, reason = f"ručně {_level_name(level)}", ""
+        level_text, reason = _("ručně {v}").format(v=_level_name(level)), ""
     else:
         level_text = _level_name(level)
-        reason = short_reason(ctrl.reason) if monitoring else "neměří se"
+        reason = short_reason(ctrl.reason) if monitoring else _("neměří se")
         wind = getattr(app, "wind_kmh", None)  # feature/vitr
-        if monitoring and wind is not None and "vítr" in reason:
-            reason = f"vítr {wind:.0f} km/h"
+        if monitoring and wind is not None and _("vítr") in reason:
+            reason = _("vítr {wind:.0f} km/h").format(wind=wind)
 
     second = ""
     mode = getattr(cfg, "overlay_second", "hr_pct")
@@ -77,13 +78,13 @@ def overlay_state(app, now: float | None = None) -> dict:
         second = f"{hr / hr_max * 100:.0f} % max"
     elif mode == "zone":
         z = hr_zone(hr, hr_max)
-        second = f"zóna {z}" if z else ""
+        second = _("zóna {z}").format(z=z) if z else ""
 
     alerts: list[str] = []
     drink = getattr(app, "drink", None)
     rem = getattr(drink, "current", None)
     if rem is not None:
-        alerts.append(f"Napijte se · {rem.ml} ml")
+        alerts.append(_("Napijte se · {ml} ml").format(ml=rem.ml))
     # feature/baterie: app.battery {key: (pct, status)}, app.batt_low(key)
     battery = getattr(app, "battery", None) or {}
     batt_low = getattr(app, "batt_low", None)
@@ -97,15 +98,15 @@ def overlay_state(app, now: float | None = None) -> dict:
             except Exception:  # noqa: BLE001
                 pass
         if low:
-            alerts.append("Slabá baterie · " + ", ".join(low))
+            alerts.append(_("Slabá baterie · ") + ", ".join(low))
     if state == "unplugged":
-        alerts.append("Dongle odpojen")
+        alerts.append(_("Dongle odpojen"))
     elif monitoring and ctrl.power_gap_s:
-        alerts.append(f"Výpadek příjmu · {ctrl.power_gap_s:.0f} s")
+        alerts.append(_("Výpadek příjmu · {power_gap_s:.0f} s").format(power_gap_s=ctrl.power_gap_s))
     sim = bool(app.sim_var.get())
     fan_used = monitoring or not auto
     if not sim and fan_used and cfg.fan.ip and not app.fan_ok:
-        alerts.append("Ventilátor neodpovídá")
+        alerts.append(_("Ventilátor neodpovídá"))
 
     return {"level": level, "auto": auto, "level_text": level_text, "reason": reason,
             "second": second, "alerts": alerts}
@@ -297,7 +298,7 @@ class Overlay:
         if len(st["alerts"]) > 1:
             alert += f"  +{len(st['alerts']) - 1}"
         self._set(self.lbl_alert, f"   {alert}" if alert else "",
-                  p["ACCENT"] if alert.startswith("Napijte") else p["BAD"])
+                  p["ACCENT"] if alert.startswith(_("Napijte")) else p["BAD"])
         if self.cfg.overlay_x is None and w.winfo_reqwidth() != getattr(self, "_req_w", 0):
             self._req_w = w.winfo_reqwidth()
             self._place()  # ve výchozím rohu držet pravý okraj
@@ -331,28 +332,28 @@ def build_settings(app, p):
     c = app.cfg
     box = tk.Frame(p, bg=_c("BG"))
     box.pack(fill="x", pady=(16, 0))
-    tk.Label(box, text="Lišta navrchu", bg=_c("BG"), fg=_c("TEXT"), font=app.fonts.title,
+    tk.Label(box, text=_("Lišta navrchu"), bg=_c("BG"), fg=_c("TEXT"), font=app.fonts.title,
              anchor="w").pack(fill="x")
-    tk.Label(box, text="Malý proužek přes Rouvy: stupeň ventilátoru, důvod a upozornění. "
-                       "Přetažením myší ho posunete, kliknutím na stupeň přepnete Auto, 1, 2… Vyp.",
+    tk.Label(box, text=_("Malý proužek přes Rouvy: stupeň ventilátoru, důvod a upozornění. "
+                       "Přetažením myší ho posunete, kliknutím na stupeň přepnete Auto, 1, 2… Vyp."),
              bg=_c("BG"), fg=_c("MUTED"), font=app.fonts.small, anchor="w", justify="left",
              wraplength=int(440 * app.px)).pack(fill="x", pady=(2, 6))
-    ttk.Checkbutton(box, text="Zobrazit lištu", variable=app.overlay_var,
+    ttk.Checkbutton(box, text=_("Zobrazit lištu"), variable=app.overlay_var,
                     command=lambda: apply(app)).pack(anchor="w")
     app._ov_size = tk.StringVar(value=c.overlay_size)
     app._ov_second = tk.StringVar(value=c.overlay_second)
     app._ov_alerts = tk.BooleanVar(value=c.overlay_alerts_only)
-    for title, var, opts in (("Velikost", app._ov_size, SIZES), ("Druhé číslo", app._ov_second, SECOND_OPTS)):
+    for title, var, opts in ((_("Velikost"), app._ov_size, SIZES), (_("Druhé číslo"), app._ov_second, SECOND_OPTS)):
         row = tk.Frame(box, bg=_c("BG"))
         row.pack(fill="x", pady=(4, 0))
         tk.Label(row, text=title, bg=_c("BG"), fg=_c("TEXT"), font=app.fonts.body, width=12,
                  anchor="w").pack(side="left")
         for key, text in opts:
-            ttk.Radiobutton(row, text=text, variable=var, value=key,
+            ttk.Radiobutton(row, text=_(text), variable=var, value=key,
                             command=lambda: apply(app)).pack(side="left", padx=(0, 10))
-    ttk.Checkbutton(box, text="Jen upozornění (jinak skrytá, při upozornění se na 20 s ukáže)",
+    ttk.Checkbutton(box, text=_("Jen upozornění (jinak skrytá, při upozornění se na 20 s ukáže)"),
                     variable=app._ov_alerts, command=lambda: apply(app)).pack(anchor="w", pady=(4, 0))
-    ttk.Button(box, text="Vrátit lištu do rohu", command=app.overlay.reset_position).pack(
+    ttk.Button(box, text=_("Vrátit lištu do rohu"), command=app.overlay.reset_position).pack(
         anchor="w", pady=(8, 0))
 
 
