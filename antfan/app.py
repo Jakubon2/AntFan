@@ -692,6 +692,7 @@ class App:
             ("…na stupni", c.cooldown_level, "", "e_cool_lvl"),
             ("Bez dat ze senzorů stupeň", c.no_data_level, "", "e_nodata_lvl"),
             ("…po", c.no_data_s, "s", "e_nodata_s"),
+            ("Předstih: výkon nad prahem", c.lead_s, "s", "e_lead_s"),
         ]
         for i, (label, val, unit, attr) in enumerate(rows):
             ttk.Label(g, text=label).grid(row=i, column=0, sticky="w", pady=2)
@@ -699,11 +700,15 @@ class App:
             e.grid(row=i, column=1, sticky="w", padx=10, pady=2)
             self._lbl(g, unit).grid(row=i, column=2, sticky="w")
             setattr(self, attr, e)
+        self.lead_var = tk.BooleanVar(value=c.lead_enabled)
+        ttk.Checkbutton(p, text="Předstih: při nástupu výkonu zvýšit stupeň hned",
+                        variable=self.lead_var, command=self.on_apply).pack(anchor="w", pady=(8, 0))
         self.lbl_beh_err = self._lbl(p, "", fg=BAD, font=self.fonts.body, anchor="w")
         self.lbl_beh_err.pack(fill="x", pady=(8, 0))
         self._lbl(p, "Hystereze: stupeň klesne, až hodnota spadne o tolik pod práh. Prodleva: jak dlouho "
                      "musí být pod prahem. Chytrý režim navíc drží stupeň podle tepu, takže ventilátor "
-                     "nezpomalí v krátkém odpočinku mezi intervaly.",
+                     "nezpomalí v krátkém odpočinku mezi intervaly. Předstih: když okamžitý výkon drží "
+                     "nad prahem vyššího stupně zadaný počet sekund, stupeň naskočí hned, ne až po průměru.",
                   anchor="w", justify="left", wraplength=int(440 * self.px)).pack(fill="x", pady=(4, 0))
 
     # --- Vzhled
@@ -849,6 +854,8 @@ class App:
             c.no_data_level = max(0, min(n, int(self.e_nodata_lvl.get())))
             c.no_data_s = max(5.0, float(self.e_nodata_s.get().replace(",", ".")))
             vitr_ui.read_control_section(self, c)
+            c.lead_s = max(1.0, min(10.0, float(self.e_lead_s.get().replace(",", "."))))
+            c.lead_enabled = self.lead_var.get()
         except ValueError as e:
             msg = str(e) if "Prahy" in str(e) or "nejvýš" in str(e) or "km/h" in str(e) else "Zadejte čísla."
             self.lbl_ctrl_err.configure(text=f"Neuloženo: {msg}")
@@ -1186,6 +1193,8 @@ class App:
         pl, hl = c.power_levels()[:n], c.hr_levels()[:n]
         if ctrl.pct is not None:
             return r
+        if r == "předstih" and pl:
+            return f"předstih · výkon nad {pl[desired - 1]} W" if desired > 0 else r
         if r == "výkon" and pl:
             return f"výkon nad prahem {pl[desired - 1]} W" if desired > 0 else f"výkon pod prahem {pl[0]} W"
         if r == "tep" and hl:

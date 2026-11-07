@@ -159,6 +159,8 @@ Režim **Vítr podle rychlosti** foukne tak, jak rychle jedete. Rychlost posíl�
 Ventilátor s rychlostí v % (Xiaomi s plynulou rychlostí, Home Assistant `fan.*`) dostane % přímo, ostatní nejbližší stupeň. Změny pod 5 % se neposílají. V okně jízdy je ventilátor v % (u stupňových ventilátorů i se stupněm), v dlaždici je vidět například „vítr 32 km/h“.
 
 ### Nastavení → Chování
+**Předstih** (výchozí vypnutý): když okamžitý výkon drží nad prahem vyššího stupně zadaný počet sekund (výchozí 3 s), stupeň naskočí hned, nečeká se na průměr. Krátký výkyv pod tu dobu nic nezmění a snižování zůstává pomalé.
+
 - **Prodleva před snížením**: jak dlouho musí být hodnota nízko, než se stupeň sníží. Zvýšení je vždy okamžité.
 - **Dofukování po tréninku**: po skončení šlapání ventilátor ještě N minut fouká na zvoleném stupni (výchozí 3 min na stupni 1) a pak se vypne. Hodnota 0 dofukování vypne.
 - **Bez dat → stupeň**: co udělat, když po zadanou dobu nepřijdou žádná data (výchozí: vypnout). Dofukování má přednost.
