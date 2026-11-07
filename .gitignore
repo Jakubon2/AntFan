@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Build (PyInstaller)
+build/
+dist/
+*.spec
+
+# Lokální data – nikdy necommitovat (token ventilátoru, logy)
+config.json
+*.log
+antfan.pid
+.env
