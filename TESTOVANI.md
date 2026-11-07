@@ -19,46 +19,46 @@ Scénář počítá s typickou sestavou: chytrý trenažér (ANT+ FE-C), tepový
 ## A. Spuštění (5 min)
 **A1 – první spuštění**
 - **K:** Dvojklik na `run.bat`.
-- **O:** Poprvé se asi minutu instalují závislosti, pak se otevře okno AntFan. Okno se vejde na obrazovku a pravý panel není useknutý.
+- **O:** Poprvé se asi minutu instalují závislosti, pak se otevře okno AntFan. Okno se vejde na obrazovku. Při prvním spuštění se samo otevře Nastavení na stránce Senzory.
 
 **A2 – druhá kopie**
 - **K:** Při běžícím AntFan spusťte `run.bat` znovu.
 - **O:** Hláška „AntFan už běží“ a druhé okno se neotevře.
 
 **A3 – simulace**
-- **K:** Zaškrtněte *Simulace* → **Hledat senzory** → po 6 s vyberte tepový pás a trenažér → **Spustit měření**.
+- **K:** *Nastavení → Diagnostika* → zaškrtněte *Simulace* → *Senzory* → **Hledat senzory** → po 6 s vyberte tepový pás a trenažér → **Spustit měření**.
 - **O:**
   - Do 5 s se objeví 4 simulované senzory.
   - Po spuštění se hýbe výkon, tep i graf a ventilátor ukazuje stupeň.
-- **K:** Odškrtněte *Simulace*.
+- **K:** V *Diagnostice* odškrtněte *Simulace*.
 
 ---
 
 ## B. Ventilátor (10 min)
 **B1 – špatná IP**
-- **K:** Zadejte nesmyslnou IP (např. `192.168.1.250`) → **Test**.
+- **K:** Zadejte nesmyslnou IP (např. `192.168.1.250`) → **Vyzkoušet**.
 - **O:** Do 3 s červeně „Ventilátor na … neodpovídá“.
 
 **B2 – špatný token**
-- **K:** Správná IP, v tokenu změňte poslední znak → **Test**.
+- **K:** Správná IP, v tokenu změňte poslední znak → **Vyzkoušet**.
 - **O:** Červeně „neodpověděl na příkaz (špatný token…)“.
 
 **B3 – správné údaje**
-- **K:** Správná IP i token → **Uložit a připojit** → **Test**.
-- **O:** Zeleně `OK: dmaker.fan.1c (fw …), vypnuto/zapnuto, stupeň …`.
+- **K:** Správná IP i token → **Uložit a připojit** → **Vyzkoušet**.
+- **O:** Zeleně „Ventilátor odpovídá: dmaker.fan.1c …“.
 
 **B4 – vypnuté pípání a podsvícení**
-- **K:** Nechte zaškrtnuté *Vypnout pípání* i *Vypnout podsvícení*. Přepněte na **Ručně** a klikejte 1 → 2 → 3 → Vyp, mezi kliky 3 s.
+- **K:** Nechte zaškrtnuté *Vypnout pípání* i *Vypnout podsvícení*. V okně jízdy klikejte na přepínači 1 → 2 → 3 → Vyp, mezi kliky 3 s.
 - **O:**
   - Ventilátor mění rychlost bez pípnutí a podsvícení je zhasnuté.
-  - Stav „skutečně“ v dlaždici ventilátoru odpovídá.
+  - Stupeň ve velkém čísle ventilátoru odpovídá.
 
 **B5 – zapnutí pípání zpět**
-- **K:** Odškrtněte *Vypnout pípání* a klikněte na 1 a 2.
+- **K:** Odškrtněte *Vypnout pípání* a klikněte na přepínači na 1 a 2.
 - **O:** Ventilátor pípá. Pak *Vypnout pípání* znovu zaškrtněte.
 
 **B6 – změna ovladačem**
-- **K:** V ručním režimu nastavte 2 a ovladačem nebo tlačítkem na ventilátoru přepněte na 3.
+- **K:** Na přepínači nastavte 2 a ovladačem nebo tlačítkem na ventilátoru přepněte na 3.
 - **O:** Do 15 s AntFan vrátí stupeň 2.
 
 **B7 – výpadek napájení**
@@ -84,8 +84,8 @@ Scénář počítá s typickou sestavou: chytrý trenažér (ANT+ FE-C), tepový
 **C2b – kvalita příjmu**
 - **K:** Vyberte pás a trenažér → **Spustit měření** → 2 min šlapejte stálým tempem.
 - **O:**
-  - Ve sloupci *Příjem* je u obou senzorů 90–100 %.
-  - Graf výkonu nemá propady na 0. Případný krátký výpadek se projeví jen nápisem „⚠ výpadek příjmu“ u výkonu.
+  - Dole v okně jízdy i ve sloupci *Příjem* je u obou senzorů 90–100 %.
+  - Graf výkonu nemá propady na 0. Případný krátký výpadek se projeví jen nápisem „výpadek příjmu“ pod výkonem.
   - Když je příjem pod 80 %, dejte dongle na prodlužovačce blíž ke kolu a porovnejte.
 - **K:** Místo *Powermetru* vyberte *Trenažér* se stejným ID (nebo naopak) a zopakujte.
 - **O:** Poznamenejte si, která varianta má lepší příjem.
@@ -112,7 +112,7 @@ Scénář počítá s typickou sestavou: chytrý trenažér (ANT+ FE-C), tepový
 - **O:** Hláška „Dongle byl odpojen – zapojte ho znovu“. Po zapojení se měření do pár sekund samo obnoví.
 
 **D4 – tlačítko Reset**
-- **K:** Během měření klikněte na **⟲ Reset donglu**.
+- **K:** Během měření klikněte v *Nastavení → Diagnostika* na **Resetovat dongle**.
 - **O:** „Resetuji dongle…“ a pak se měření samo obnoví.
 
 **D5 – násilné ukončení**
@@ -122,7 +122,7 @@ Scénář počítá s typickou sestavou: chytrý trenažér (ANT+ FE-C), tepový
 ---
 
 ## E. Řízení na kole (25 min)
-Nastavení: **Automaticky**, režim **Chytře**, záložka *Prahy* → **% FTP**, FTP **210**, max. tep (váš skutečný, jinak 185), prahy 30 / 60 / 85 %. Vedle prahů by mělo být ≈ 63 / 126 / 178 W.
+Nastavení: přepínač **Auto**, *Nastavení → Řízení* → **Chytře**, prahy v **% FTP a % max. tepu**, FTP **210**, max. tep (váš skutečný, jinak 185), prahy 30 / 60 / 85 %. Vedle prahů by mělo být ≈ 63 / 126 / 178 W.
 
 **E1 – zvyšování podle výkonu**
 - **K:**
@@ -141,7 +141,7 @@ Nastavení: **Automaticky**, režim **Chytře**, záložka *Prahy* → **% FTP**
   - Na 1 klesne, až tep spadne pod ~125 bpm, a ještě 20 s počká.
 
 **E3 – srovnání s režimem jen výkon**
-- **K:** Přepněte *Řídit podle* na **Jen výkon** a zopakujte 2 min ~200 W a 90 s ~100 W.
+- **K:** Přepněte *Řízení* na **Jen výkon** a zopakujte 2 min ~200 W a 90 s ~100 W.
 - **O:** Asi 20 s po poklesu výkonu stupeň klesne na **1** (prodleva). Pak vraťte **Chytře**.
 
 **E4 – hystereze**
@@ -155,20 +155,20 @@ Nastavení: **Automaticky**, režim **Chytře**, záložka *Prahy* → **% FTP**
 **E6 – dofukování**
 - **K:** Ukončete trénink: přestaňte šlapat a sundejte pás.
 - **O:**
-  - Asi 20 s po zastavení se ve stupni ventilátoru objeví „dofukování ještě 2:xx“ a ventilátor běží na stupni 1.
+  - Asi 20 s po zastavení se pod stupněm ventilátoru objeví „dofukování ještě 2:xx“ a ventilátor běží na stupni 1.
   - Po ~3 min se vypne.
 - **Pozn.:** Když pás po tréninku necháte na sobě, ventilátor fouká, dokud tep neklesne pod ~97 bpm, a teprve pak začne dofukování.
 
 **E7 – dofukování vypnuto**
-- **K:** *Chování* → Dofukování **0** → Použít. Šlapejte 1 min, pak přestaňte a sundejte pás.
+- **K:** *Nastavení → Chování* → Dofukování **0** (ukládá se hned). Šlapejte 1 min, pak přestaňte a sundejte pás.
 - **O:** Po ~20–30 s se ventilátor vypne bez dofukování. Pak vraťte 3 min.
 
 **E8 – přepočet FTP**
-- **K:** Změňte FTP na 250 → Použít.
+- **K:** *Nastavení → Řízení* → FTP 250 (ukládá se hned).
 - **O:** Přepočty u prahů se změní na ≈ 75 / 150 / 212 W a dlaždice výkonu ukazuje nové % FTP. Pak vraťte 210.
 
 **E9 – jen tep**
-- **K:** *Řídit podle* → **Jen tep**. Šlapejte, až tep stoupne nad ~130 bpm.
+- **K:** *Řízení* → **Jen tep**. Šlapejte, až tep stoupne nad ~130 bpm.
 - **O:** Stupeň sleduje tep se zpožděním. Pak vraťte **Chytře**.
 
 ---

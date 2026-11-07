@@ -97,7 +97,7 @@ ANT+ vysílá všem přijímačům najednou, takže senzory můžou zároveň vy
 - **Tepový pás Polar:** ANT+ umí Polar H9. Polar H10 vysílá jen Bluetooth, takže ho AntFan přes ANT+ neuvidí.
 
 ## Řízení ventilátoru
-Režim **Automaticky** řídí ventilátor podle pravidel, režim **Ručně** používá tlačítka Vyp/1/2/3.
+Přepínač dole v okně: **Auto** řídí ventilátor podle pravidel, **Vyp/1/2/3** nastaví stupeň ručně. Všechno ostatní je v okně **Nastavení** a ukládá se hned.
 
 ### Řídit podle
 | Režim | Chování |
@@ -136,7 +136,7 @@ Program na to pamatuje několika způsoby:
 - **Opakované pokusy:** když otevření selže, zkusí to celkem 4× a mezitím provede USB reset donglu.
 - **Jediná instance:** druhá kopie AntFan se nespustí. Pokud stará kopie visí na pozadí bez okna (typicky `pythonw.exe`), nabídne její ukončení.
 - **Diagnostika:** když dongle opravdu drží jiný program, AntFan vypíše, který to je. Rozpozná například Zwift Launcher, Garmin Express, TrainerRoad, MyWhoosh a ROUVY.
-- **Tlačítko „⟲ Reset donglu“:** uvolní dongle a provede USB reset, stejně jako by se vytáhl a zapojil.
+- **Nastavení → Diagnostika → Resetovat dongle:** uvolní dongle a provede USB reset, stejně jako by se vytáhl a zapojil.
 - **Vytažení za běhu:** měření se po zapojení obnoví samo.
 
 Když nic z toho nepomůže, zapojte dongle do jiného USB portu (ne do hubu) a ve Správci zařízení zkontrolujte, že má ovladač libusbK.
