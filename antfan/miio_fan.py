@@ -19,7 +19,7 @@ import socket
 import struct
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -155,52 +155,130 @@ class MiioClient:
 
 @dataclass
 class FanConfig:
+    kind: str = "xiaomi"       # xiaomi | shelly | homeassistant
     ip: str = ""
     token: str = ""
     max_level: int = 3
+    model: str = ""            # zjištěný model (jen pro informaci)
+    auto_model: bool = True    # vlastnosti vybrat podle modelu ventilátoru
     power_siid: int = 2
     power_piid: int = 1
     level_siid: int = 2
     level_piid: int = 2
+    level_values: list = field(default_factory=list)  # [] = 1..max_level, ["range", od, do] = %
     mute_buzzer: bool = True   # ventilátor jinak pípne při každém příkazu
     light_off: bool = True
     buzzer_siid: int = 2
     buzzer_piid: int = 11
     light_siid: int = 2
     light_piid: int = 12
+    # Shelly / Home Assistant
+    shelly_host: str = ""
+    shelly_channel: int = 0
+    on_level: int = 1          # od jakého stupně zapnout (zařízení jen zap/vyp)
+    ha_url: str = ""
+    ha_token: str = ""
+    ha_entity: str = ""
+
+
+def _device_error(e: Exception) -> bool:
+    """Chyba vrácená ventilátorem (příkaz nepodporuje), ne síťová chyba."""
+    return isinstance(e, MiioError) and "vrátil chybu" in str(e)
 
 
 class XiaomiFan:
-    """Vysokoúrovňové ovládání: stupeň 0 = vypnuto, 1..max_level = rychlost."""
+    """Vysokoúrovňové ovládání: stupeň 0 = vypnuto, 1..max_level = rychlost.
+
+    Při prvním spojení zjistí model a vybere vlastnosti z předvoleb
+    (fan_presets), případně ze specifikace MIoT na internetu. Starší modely
+    ovládá starým protokolem (set_power / s_power).
+    """
 
     def __init__(self, cfg: FanConfig):
         self.cfg = cfg
         self.client = MiioClient(cfg.ip, cfg.token)
+        self._prof = None
+        self.note: str | None = None
 
     def info(self) -> dict:
         return self.client.send("miIO.info", []) or {}
 
-    def get_state(self) -> tuple[bool, int]:
+    def _manual(self):
         c = self.cfg
-        res = self.client.send(
-            "get_properties",
-            [
-                {"did": "power", "siid": c.power_siid, "piid": c.power_piid},
-                {"did": "level", "siid": c.level_siid, "piid": c.level_piid},
-            ],
-        )
-        vals = {r.get("did"): r.get("value") for r in (res or []) if r.get("code", 0) == 0}
-        return bool(vals.get("power")), int(vals.get("level") or 0)
+        vals = tuple(c.level_values) if c.level_values else ()
+        return ((c.power_siid, c.power_piid), (c.level_siid, c.level_piid), vals,
+                (c.buzzer_siid, c.buzzer_piid), (c.light_siid, c.light_piid))
+
+    def _profile(self):
+        if self._prof is not None:
+            return self._prof
+        c = self.cfg
+        if not c.auto_model:
+            self._prof = self._manual()
+            return self._prof
+        from .fan_presets import LEGACY, PRESETS
+        from .fans import spec_lookup
+
+        model = str(self.info().get("model", ""))
+        c.model = model
+        if model in LEGACY:
+            self._prof = ("legacy", LEGACY[model])
+            self.note = f"model {model} (starší protokol, neověřeno)"
+        elif model in PRESETS:
+            self._prof = PRESETS[model]
+            self.note = f"model {model}"
+        else:
+            prof = spec_lookup(model) if model else None
+            if prof:
+                self._prof = prof
+                self.note = f"model {model} (podle specifikace MIoT, neověřeno)"
+            else:
+                self._prof = self._manual()
+                self.note = f"model {model or '?'} neznám, používám ruční nastavení"
+        log.info("Ventilátor %s, profil %s", model, self._prof)
+        return self._prof
+
+    def get_state(self) -> tuple[bool, int]:
+        from .fans import unmap_level
+
+        prof, n = self._profile(), self.cfg.max_level
+        if prof[0] == "legacy":
+            if prof[1] == "p5":
+                power, speed = (self.client.send("get_prop", ["power", "speed"]) or [False, 0])[:2]
+                return bool(power), unmap_level(speed, n, ("range", 1, 100))
+            power, speed = (self.client.send("get_prop", ["power", "speed_level"]) or ["off", 0])[:2]
+            return power == "on", unmap_level(speed, n, ("range", 1, 100))
+        (ps, pp), (ls, lp), vals = prof[0], prof[1], prof[2]
+        res = self.client.send("get_properties", [
+            {"did": "power", "siid": ps, "piid": pp},
+            {"did": "level", "siid": ls, "piid": lp},
+        ])
+        v = {r.get("did"): r.get("value") for r in (res or []) if r.get("code", 0) == 0}
+        return bool(v.get("power")), unmap_level(v.get("level"), n, vals)
 
     def set_level(self, level: int) -> None:
-        c = self.cfg
-        level = max(0, min(int(level), c.max_level))
+        from .fans import map_level
+
+        prof, n = self._profile(), self.cfg.max_level
+        level = max(0, min(int(level), n))
+        if prof[0] == "legacy":
+            pct = map_level(level, n, ("range", 1, 100)) if level else 0
+            if prof[1] == "p5":
+                self.client.send("s_power", [level > 0])
+                if level:
+                    self.client.send("s_speed", [pct])
+            else:
+                self.client.send("set_power", ["on" if level else "off"])
+                if level:
+                    self.client.send("set_speed_level", [pct])
+            return
+        (ps, pp), (ls, lp), vals = prof[0], prof[1], prof[2]
         if level == 0:
-            props = [{"did": "power", "siid": c.power_siid, "piid": c.power_piid, "value": False}]
+            props = [{"did": "power", "siid": ps, "piid": pp, "value": False}]
         else:
             props = [
-                {"did": "power", "siid": c.power_siid, "piid": c.power_piid, "value": True},
-                {"did": "level", "siid": c.level_siid, "piid": c.level_piid, "value": level},
+                {"did": "power", "siid": ps, "piid": pp, "value": True},
+                {"did": "level", "siid": ls, "piid": lp, "value": map_level(level, n, vals)},
             ]
         res = self.client.send("set_properties", props)
         for r in res or []:
@@ -214,14 +292,33 @@ class XiaomiFan:
         Síťové chyby propouští dál, aby se to zkusilo znovu.
         """
         c = self.cfg
-        props = [
-            {"did": "buzzer", "siid": c.buzzer_siid, "piid": c.buzzer_piid, "value": not c.mute_buzzer},
-            {"did": "light", "siid": c.light_siid, "piid": c.light_piid, "value": not c.light_off},
-        ]
-        res = self.client.send("set_properties", props)
-        failed = [r.get("did") for r in (res or []) if r.get("code", 0) != 0]
+        prof = self._profile()
+        failed = []
+        if prof[0] == "legacy":
+            cmds = ([("buzzer", "s_sound", [not c.mute_buzzer]), ("light", "s_light", [not c.light_off])]
+                    if prof[1] == "p5" else
+                    [("buzzer", "set_buzzer", ["off" if c.mute_buzzer else "on"]),
+                     ("light", "set_led_b", [2 if c.light_off else 0])])
+            for did, method, params in cmds:
+                try:
+                    self.client.send(method, params)
+                except MiioError as e:
+                    if not _device_error(e):
+                        raise
+                    failed.append(did)
+            return failed
+        buzzer, light = prof[3], prof[4]
+        props = []
+        for did, ids, val in (("buzzer", buzzer, not c.mute_buzzer), ("light", light, not c.light_off)):
+            if ids is None:
+                failed.append(did)
+            else:
+                props.append({"did": did, "siid": ids[0], "piid": ids[1], "value": val})
+        if props:
+            res = self.client.send("set_properties", props)
+            failed += [r.get("did") for r in (res or []) if r.get("code", 0) != 0]
         if failed:
-            log.warning("Ventilátor nepodporuje: %s (%s)", failed, res)
+            log.warning("Ventilátor nepodporuje: %s", failed)
         return failed
 
 
@@ -310,8 +407,11 @@ class FanWorker:
                 if self._quiet_pending:
                     failed = fan.apply_quiet()
                     self._quiet_pending = False
+                    note = getattr(fan, "note", None)
+                    if note and not failed:
+                        self._emit(True, f"připojeno: {note}")
                     if failed:
-                        self._emit(True, "připojeno (tento model nepodporuje: "
+                        self._emit(True, f"připojeno{': ' + note if note else ''} (nepodporuje: "
                                    + ", ".join("pípání" if f == "buzzer" else "podsvícení" for f in failed) + ")")
                 if desired is None:
                     continue

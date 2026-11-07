@@ -15,12 +15,12 @@ Program pro Windows 11:
 | **Tepový pás** | jakýkoli s ANT+: Garmin HRM, Wahoo TICKR, Scosche Rhythm+, Garmin hodinky se zapnutým *vysíláním tepu* | jen Bluetooth: Polar H9, H10, Verity Sense |
 | **Powermetr** | jakýkoli ANT+: pedály (Garmin Rally, Favero Assioma), kliky (Stages, 4iiii, Quarq) | jen Bluetooth |
 | **Chytrý trenažér** | jakýkoli s ANT+ FE-C: Tacx, Wahoo KICKR, Elite, Zwift Hub… | trenažér jen s Bluetooth |
-| **Ventilátor** | Xiaomi Smart Standing Fan 2 Lite (`dmaker.fan.1c`), odzkoušený | starší Xiaomi se starým protokolem, ventilátory s plynulou rychlostí v %, jiné značky |
+| **Ventilátor** | Xiaomi Smart Standing Fan 2 Lite (`dmaker.fan.1c`, odzkoušený), další Xiaomi ventilátory podle specifikace, obyčejný ventilátor přes Shelly, cokoli přes Home Assistant | jiné značky bez Home Assistant |
 | **Počítač** | Windows 10 a 11 | macOS a Linux zatím ne |
 
 Samostatné čidlo rychlosti a kadence AntFan nepoužívá, kadenci bere z powermetru nebo trenažéru.
 
-**Jiné Xiaomi ventilátory:** novější modely s protokolem MIoT a stupni rychlosti (1–5) by měly jít, ale nikdo je nezkoušel. V `%APPDATA%\AntFan\config.json` je potřeba v sekci `fan` upravit `max_level` a čísla vlastností (`power_siid/piid`, `level_siid/piid`, `buzzer_…`, `light_…`) podle specifikace modelu na <https://home.miot-spec.com>. Když to u vás funguje, napište model a hodnoty do Issues.
+**Ventilátory** podrobně viz [Připojení ventilátoru](#připojení-ventilátoru).
 
 ## Instalace
 
@@ -44,40 +44,39 @@ Dvojklik na **`AntFan.exe`**, nebo u verze ze zdrojového kódu na **`run.bat`**
 
 Exe si můžete sestavit i sami: spusťte **`build_exe.bat`**, výsledek najdete v `dist\AntFan.exe`.
 
-## Připojení ventilátoru (IP adresa a token)
+## Připojení ventilátoru
 
-### Jak to funguje
-AntFan posílá příkazy ventilátoru **přímo v domácí síti** (UDP port 54321), bez cloudu Xiaomi. Komunikace je šifrovaná **tokenem**: tajným klíčem o 32 hex znacích, který ventilátor vytvoří při spárování s aplikací Xiaomi Home. Bez správného tokenu ventilátor příkazy ignoruje.
-Aplikace Xiaomi Home i dálkový ovladač fungují dál normálně vedle AntFan.
+V **Nastavení → Ventilátor** vyberte typ:
 
-### Postup
-1. **Spárujte ventilátor** v aplikaci Xiaomi Home (Mi Home), pokud už není. Ventilátor umí jen Wi-Fi 2,4 GHz a PC musí být ve stejné síti. Síť pro hosty často zařízení navzájem izoluje.
-2. **Získejte token** nástrojem [Xiaomi Cloud Tokens Extractor](https://github.com/PiotrMachowski/Xiaomi-cloud-tokens-extractor):
-   - V sekci *Releases* stáhněte `token_extractor.exe` a spusťte ho.
-   - **Nejjednodušší je přihlášení QR kódem** (nabízí ho novější verze nástroje). Nástroj ukáže QR kód a ten naskenujete v aplikaci Xiaomi Home, ve které jste přihlášení. Heslo není potřeba.
-   - Druhá možnost je jméno a heslo k Xiaomi účtu. Účet se zadává jen do tohoto nástroje, AntFan ho nikdy nepotřebuje.
-   - Pokud se nástroj zeptá na oblast serveru, pro Evropu to bývá `de`. Když vypíše 0 zařízení, nechte oblast prázdnou a nástroj projde všechny.
+| Typ | Co ovládá | Stupně |
+|---|---|---|
+| **Xiaomi** | ventilátory Xiaomi / Mijia / Smartmi / dmaker v domácí Wi-Fi (bez cloudu) | stupně nebo rychlost v % podle modelu |
+| **Shelly zásuvka** | obyčejný ventilátor zapojený přes Shelly relé (Gen1 i Plus/Pro, bez hesla) | jen zapnout od zvoleného stupně |
+| **Home Assistant** | jakoukoli entitu `fan.*` (rychlost v %) nebo `switch.*` | podle entity |
 
-   **Když heslo nejde:**
-   - Pokud se do Xiaomi Home přihlašujete přes Google, Apple nebo Facebook, účet **nemá heslo**. Použijte QR kód, nebo si heslo nastavte na <https://account.xiaomi.com> (přihlaste se stejným způsobem → Zabezpečení → heslo).
-   - Jako jméno použijte e-mail, telefon s předvolbou (`+420…`) nebo číselné Xiaomi ID (v aplikaci Xiaomi Home → Profil).
-   - Heslo si ověřte přihlášením na <https://account.xiaomi.com>. Když nejde ani tam, použijte „Zapomenuté heslo“.
-   - Při chybě captcha nebo nekonečném ověření ve dvou krocích stáhněte nejnovější verzi nástroje, zkontrolujte spam (kód chodí e-mailem) a nezkoušejte to mnohokrát za sebou, protože Xiaomi pokusy denně omezuje. Pomůže i QR kód.
+### Xiaomi
+AntFan posílá příkazy ventilátoru **přímo v domácí síti** (UDP port 54321). Komunikace je šifrovaná **tokenem**, tajným klíčem, který ventilátor vytvoří při spárování s aplikací Mi Home. Aplikace Mi Home i dálkový ovladač fungují dál normálně.
 
-   **Když extractor nefunguje vůbec, zkuste program `micloud`.** Jde o jinou implementaci téhož přihlášení a nainstalujete ho do Pythonu, který si vytvořil AntFan. Nejdřív aspoň jednou spusťte `run.bat`, pak v příkazovém řádku ve složce AntFan zadejte:
-   ```bat
-   .venv\Scripts\pip install micloud
-   .venv\Scripts\micloud get-devices -c de --pretty
-   ```
-   - Program se zeptá na jméno (Username) a heslo (Password). Heslo se při psaní nezobrazuje.
-   - Vypíše zařízení. U ventilátoru (`"model": "dmaker.fan.1c"`) opište hodnoty `"localip"` a `"token"`.
-   - Když vypíše prázdný seznam `[]`, zkuste jinou oblast místo `de`: `i2`, `ru`, `sg`, `us` nebo `cn`.
-   - `micloud` neumí ověření ve dvou krocích. Když při správném hesle hlásí „Access denied“, Xiaomi pokus nejspíš zablokoval jako podezřelé přihlášení. Potvrďte ho v e-mailu nebo v aplikaci Xiaomi Home a zkuste to znovu.
-   - Nástroj vypíše všechna zařízení. U ventilátoru (model `dmaker.fan.1c`) si zkopírujte **IP** a **TOKEN**.
-3. **Nastavte pevnou IP:** v routeru ventilátoru zarezervujte IP adresu (DHCP rezervace podle MAC adresy). Jinak se adresa může po restartu routeru změnit.
-4. **V AntFan** vyplňte IP a token, klikněte na **Uložit a připojit** a pak na **Test**. Mělo by se zobrazit `OK: dmaker.fan.1c, …`.
+1. **Spárujte ventilátor** v aplikaci Mi Home. Ventilátor umí jen Wi-Fi 2,4 GHz a PC musí být ve stejné síti (síť pro hosty zařízení často izoluje).
+2. **Klikněte na „Získat z účtu Xiaomi…“.** AntFan ukáže QR kód, ten naskenujete v aplikaci Mi Home a přihlášení potvrdíte v telefonu. Heslo se nikam nezadává. Pak vyberte ventilátor ze seznamu a AntFan vyplní IP adresu i token sám.
+   - Na stejném počítači můžete místo QR kódu kliknout na „Otevřít přihlášení v prohlížeči“.
+   - Seznam zařízení se stáhne jen jednou při tomto kroku. Ovládání pak jde bez cloudu.
+   - Když to nejde, token získáte i nástrojem [Xiaomi Cloud Tokens Extractor](https://github.com/PiotrMachowski/Xiaomi-cloud-tokens-extractor) (z jeho protokolu vychází i AntFan) a vyplníte ho ručně.
+3. **Nastavte pevnou IP:** v routeru ventilátoru zarezervujte IP adresu (DHCP rezervace podle MAC adresy).
+4. **Vyzkoušet.** AntFan zjistí model a sám vybere správné ovládání:
+   - **přímo podporované modely** (předvolby ze specifikací Xiaomi MIoT): `dmaker.fan.1c` (odzkoušený), `dmaker.fan.p5c/p8/p9/p10/p11/p15/p18/p28/p30/p33/p39/p42/p44/p45/p220/p221/p23/tn1/01/02/1e`, `xiaomi.fan.2lite/p23/p30/p43/p45/p51/p69/p70/p76/p85/p90`, `zhimi.fan.za5/fa1/fa2/fb1`, `leshow.fan.ss4/ss310/ss320`, `viomi.fan.v5–v8/v13`, `dreame.fan.*` a další,
+   - **starší modely se starým protokolem**: `zhimi.fan.v2/v3/sa1/za1/za3/za4`, `dmaker.fan.p5`,
+   - **ostatní modely**: AntFan si stáhne jejich specifikaci z <https://miot-spec.org> a uloží ji.
+   Kromě `dmaker.fan.1c` jsou modely ověřené jen podle specifikace, ne na skutečném ventilátoru. Když u vás funguje jiný model, napište to do Issues.
+5. **Počet stupňů** v AntFan (1–5) může být jiný než počet stupňů ventilátoru. AntFan je rozloží rovnoměrně: třeba 3 stupně AntFan na ventilátoru se 4 stupni = 1, 3, 4, a u rychlosti v % = 34 %, 67 %, 100 %.
 
 Token se změní, když ventilátor resetujete nebo znovu spárujete. Pak ho získejte znovu.
+
+### Shelly
+Zadejte IP adresu Shelly, výstup (u jednokanálových 0) a od jakého stupně se má zapnout. Rychlost nastavte na ventilátoru, AntFan ho jen zapíná a vypíná. Shelly musí mít vypnuté heslo (AntFan heslo zatím neumí).
+
+### Home Assistant
+Zadejte adresu (třeba `http://homeassistant.local:8123`), dlouhodobý token (profil v Home Assistant → Zabezpečení → Dlouhodobé přístupové tokeny) a entitu, třeba `fan.vetrak` nebo `switch.zasuvka_vetrak`. Entita `fan.*` dostane rychlost v %, `switch.*` se zapne od zvoleného stupně.
 
 ### Pípání a podsvícení
 Ventilátor jinak pípne při každém příkazu, proto ho AntFan při připojení ztiší (volba **Vypnout pípání**). Volitelně vypne i podsvícení. Nastavení se pošle při každém připojení a po výpadku ventilátoru. Když políčko odškrtnete, pípání nebo podsvícení se zase zapne.

@@ -61,6 +61,14 @@ def run(out_path: str | None = None) -> int:
         c = MiioClient("127.0.0.1", "00112233445566778899aabbccddeeff")
         assert c.decrypt(c.encrypt(b'{"id":1}')) == b'{"id":1}'
 
+    def t_fans():
+        from . import fan_presets, fans, xiaomi_cloud, xiaomi_ui  # noqa: F401
+
+        assert fans.map_level(2, 3, ("range", 1, 100)) == 67
+        assert "dmaker.fan.1c" in fan_presets.PRESETS
+        key = b"0123456789abcdef"
+        assert xiaomi_cloud._rc4(key, xiaomi_cloud._rc4(key, b"abc")) == b"abc"
+
     def t_app():
         from . import app  # noqa: F401
 
@@ -69,6 +77,7 @@ def run(out_path: str | None = None) -> int:
     check("libusb", t_libusb)
     check("opravy openant", t_patches)
     check("šifrování miIO", t_crypto)
+    check("ventilátory", t_fans)
     check("aplikace", t_app)
     lines.append("VÝSLEDEK: " + ("v pořádku" if ok else "CHYBA"))
     text = "\n".join(lines)
