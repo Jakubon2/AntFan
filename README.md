@@ -52,11 +52,13 @@ Aplikace pro Mac s Apple Silicon (M1 a novější). Ovladač donglu se na Macu n
 
 1. V sekci [Releases](../../releases) stáhněte **`AntFan-macOS.zip`** a rozbalte ho (dvojklik).
 2. **`AntFan.app`** přetáhněte do složky *Aplikace*.
-3. **První spuštění:** aplikace není podepsaná u Applu, takže ji macOS dvojklikem neotevře. Klikněte na ni **pravým tlačítkem → Otevřít** a v dialogu znovu *Otevřít*. Další spuštění už jde normálně.
-   Když macOS hlásí, že je aplikace „poškozená“ nebo ji nejde otevřít ani takhle, odstraňte příznak stažení v Terminálu:
+3. **První spuštění:** aplikace není podepsaná u Applu, takže macOS při prvním otevření hlásí *„Soubor AntFan nebyl otevřen“*. Klikněte na **Hotovo** (ne *Přesunout do koše*) a pak:
+   - otevřete **Nastavení systému → Soukromí a zabezpečení**, sjeďte dolů a u hlášky o AntFanu klikněte na **Přesto otevřít**, potvrďte heslem nebo Touch ID a AntFan spusťte znovu,
+   - nebo v Terminálu odstraňte příznak stažení:
    ```bash
    xattr -dr com.apple.quarantine /Applications/AntFan.app
    ```
+   Stačí jednou, další spuštění už jdou normálně. (Starší macOS umí i **pravé tlačítko → Otevřít**.)
 4. Zapojte ANT+ dongle (na USB-C přes redukci) a spusťte měření.
 
 Dongle může naráz používat jen jedna aplikace. Zwift, ROUVY, TrainerRoad, Garmin Express apod. musí dongle pustit, jinak AntFan hlásí, že je obsazený (a vypíše, který program běží). Garmin Express a Zwift Launcher běží na pozadí i po zavření okna, zkontrolujte ikonky v horní liště.
@@ -217,11 +219,16 @@ Hodnoty (výkon, tep, stupeň) a přepínač **Auto | Vyp | 1–3** lze mít i n
 
 1. V hlavním okně klikněte na **Zapnout mobil** (výchozí je vypnuto). Poprvé se otevře Nastavení → Mobil s QR kódem. Po zavření programu se ovládání z mobilu zase vypne. Kdo ho chce mít pořád, zaškrtne v Nastavení → Mobil **Zapnout hned po spuštění programu**.
 2. Načtěte v telefonu QR kód, nebo otevřete adresu ve tvaru `http://<IP počítače>:8686/m/<klíč>`.
-3. Windows se napoprvé zeptá, zda AntFan smí do sítě. Povolte **soukromé sítě**, jinak se telefon nepřipojí.
+3. Windows se napoprvé zeptá, zda AntFan smí do sítě. Povolte **soukromé sítě**, jinak se telefon nepřipojí. Na macOS musí mít AntFan zapnutý přístup v **Nastavení systému → Soukromí a zabezpečení → Místní síť**.
 
 - Adresa obsahuje náhodný klíč. Bez něj server odpoví 404. Kdo adresu zná, může ventilátor ovládat. Tlačítko **Nový klíč** starou adresu zneplatní.
 - Port (výchozí 8686) jde změnit, když je obsazený.
 - Stránka se obnovuje každou sekundu a řídí se tmavým režimem telefonu. Obrazovku telefonu nechte rozsvícenou.
+- **Na počítači stránka jde, na telefonu ne** („Tento web není dostupný“, „ERR_TOO_MANY_RETRIES“, načítá se donekonečna):
+  - IP adresa telefonu (Android: Nastavení → Wi-Fi → ozubené kolečko u sítě, iPhone: Nastavení → Wi-Fi → ⓘ) musí začínat stejně jako adresa počítače, např. obě `192.168.1.…`. Jinak je telefon v jiné síti nebo na mobilních datech.
+  - Vypněte na telefonu **VPN** a aplikace, které se jako VPN chovají (blokátory reklam jako AdGuard, Blokada, NextDNS, Cloudflare WARP / 1.1.1.1, antiviry, na Samsungu *Zabezpečená Wi-Fi*). Posílají provoz mimo domácí síť, takže se k počítači nedostane.
+  - Sítě pro hosty, firemní a školní Wi-Fi často zakazují, aby se zařízení viděla navzájem. Tam to bez změny nastavení routeru nepůjde.
+  - Po **Novém klíči** naskenujte nový QR kód, stará adresa vrací „Not found“.
 - Pro vlastní skripty: `GET /m/<klíč>/api/state` vrací JSON, `POST /m/<klíč>/api/level` s tělem `{"level": "auto"}` nebo `{"level": 2}` přepne stupeň.
 
 ## Připomínka pití
@@ -284,11 +291,20 @@ Ve sloupci **Příjem** je vidět, kolik % zpráv od senzoru za posledních 5 s 
   - **Vypadává jen jeden senzor:** příčina je u senzoru. Bývá to jeho Bluetooth spojení s Rouvy, protože senzor se rádiem dělí mezi Bluetooth a ANT+. Může to být i baterie nebo u pásu kontakt s kůží.
 - **Pro diagnostiku** AntFan každých 5 s zapíše do `antfan.log` souhrn příjmu každého senzoru (počet zpráv, nejdelší mezera, změny čítače, výkon). Každý výpadek delší než 1,5 s zapíše zvlášť. Po jízdě pošlete log, z něj je přesně vidět, co se dělo.
 
+### Rouvy (nebo jiná hra) se s AntFanem seká
+AntFan sám procesor skoro nezatěžuje (ve Správci úloh má během jízdy ~0 % CPU). Když se přesto s ním seká obraz nebo celý počítač, bývá příčina v USB nebo ovladačích. Postupně zkuste:
+
+1. **Spustit AntFan bez měření** (dongle se neotevře) a pak Rouvy. Když se nic neseká, vadí čtení z donglu přes USB, pokračujte bodem 2. Když se to seká i tak, vypněte **lištu navrchu** a mobil.
+2. **Dongle do jiného USB portu**: vzadu přímo na desce, USB 2.0 (černý, ne modrý), ne do hubu, ideálně na prodlužovačce dál od počítače a od Bluetooth adaptéru.
+3. **LatencyMon** (zdarma, Resplendence) během jízdy ukáže, který ovladač systém brzdí.
+
+Rouvy přes Bluetooth a AntFan přes ANT+ jsou obě na 2,4 GHz. Dongle na prodlužovačce blíž ke kolu pomáhá oběma.
+
 ### Ostatní
 - **„ANT+ dongle nenalezen“**: zkontrolujte, že je dongle zapojený, a ve Správci zařízení ověřte ovladač (libusbK/WinUSB).
 - **Ventilátor neodpovídá**: špatná IP, jiná síť nebo blokace firewallem.
 - **„špatný token“**: token se změní při každém novém spárování ventilátoru, takže ho získejte znovu.
-- Log: `%APPDATA%\AntFan\antfan.log`, nastavení: `%APPDATA%\AntFan\config.json`.
+- Log: `%APPDATA%\AntFan\antfan.log`, nastavení: `%APPDATA%\AntFan\config.json` (macOS: `~/Library/Application Support/AntFan/`). Log stačí najít tak, že do adresního řádku Průzkumníka zadáte `%APPDATA%\AntFan`.
 
 ## Struktura
 ```

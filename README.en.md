@@ -39,10 +39,13 @@ No dongle driver is needed on a Mac.
 
 1. Download **`AntFan-macOS.zip`** from [Releases](../../releases) and unzip it.
 2. Drag **`AntFan.app`** to *Applications*.
-3. **First launch:** the app is not signed by Apple, so right-click it → **Open** and confirm *Open*. If macOS says the app is "damaged", remove the download flag in Terminal:
+3. **First launch:** the app is not signed by Apple, so macOS says *"AntFan" Not Opened*. Click **Done** (not *Move to Trash*), then either:
+   - open **System Settings → Privacy & Security**, scroll down, click **Open Anyway** next to the AntFan message, confirm and launch AntFan again,
+   - or remove the download flag in Terminal:
    ```bash
    xattr -dr com.apple.quarantine /Applications/AntFan.app
    ```
+   This is needed only once. (Older macOS also allows **right-click → Open**.)
 4. Plug in the ANT+ dongle (USB-C adapter) and start measuring.
 
 Settings and the log are in `~/Library/Application Support/AntFan/` (Settings → Diagnostics → *Open log folder*). Zwift Launcher and Garmin Express keep running after their window is closed, check the menu bar.
@@ -112,7 +115,7 @@ If one source is missing, the other is used automatically.
 
 ## More features
 
-- **Phone control:** values and the **Auto | Off | 1–3** switch on a phone on the same Wi-Fi, nothing to install. Click **Phone on**, scan the QR code or open `http://<PC IP>:8686/m/<key>`. On Windows allow **private networks**. The address contains a random key; **New key** invalidates it. The page language follows the app setting, or the phone's language when set to System. API: `GET /m/<key>/api/state`, `POST /m/<key>/api/level` with `{"level": "auto"}` or `{"level": 2}`.
+- **Phone control:** values and the **Auto | Off | 1–3** switch on a phone on the same Wi-Fi, nothing to install. Click **Phone on**, scan the QR code or open `http://<PC IP>:8686/m/<key>`. On Windows allow **private networks**; on macOS enable AntFan in **System Settings → Privacy & Security → Local Network**. The address contains a random key; **New key** invalidates it. The page language follows the app setting, or the phone's language when set to System. API: `GET /m/<key>/api/state`, `POST /m/<key>/api/level` with `{"level": "auto"}` or `{"level": 2}`.
 - **Drink reminder** (off by default, Settings → Drinking): a subtle "Drink · about 150 ml" bar during the ride, based on ride time, power and room temperature. Rough values only.
 - **Overlay bar** (off by default): a small strip on top of Rouvy with the fan level, reason and alerts. Click the level to cycle Auto → 1 → 2 → … → Off, drag to move. Rouvy must run in borderless/windowed mode.
 - **Profiles:** each profile has its own FTP, max HR, thresholds, mode and behavior. Switch via "Profile: …" in the ride window or Settings → Control.
@@ -123,6 +126,8 @@ If one source is missing, the other is used automatically.
 
 - **"Dongle is used by another app" when nothing runs:** AntFan releases the dongle after errors, retries with a USB reset, allows only one instance and tells you which app holds the dongle. **Settings → Diagnostics → Reset dongle** acts like unplugging it. Try another USB port (not a hub) and on Windows check the libusbK driver in Device Manager.
 - **Power drops to 0 W:** the **Signal** column shows the % of messages received in the last 5 s (red below 80 %). Move the dongle closer to the bike. AntFan tells you below the sensor list whether the cause is the PC (all sensors drop at once) or one sensor.
+- **Phone page does not load** (works on the PC): the phone's IP must start like the PC's (same Wi-Fi, not mobile data); turn off VPN and VPN-like apps on the phone (ad blockers, NextDNS, WARP, antivirus, Samsung *Secure Wi-Fi*); guest/office/school Wi-Fi often isolates devices; after **New key** scan the new QR code.
+- **Rouvy or the whole PC stutters with AntFan:** AntFan itself uses ~0 % CPU, so the cause is usually USB or drivers. Test AntFan without measuring (dongle closed); if that is fine, move the dongle to a rear USB 2.0 port (not a hub), ideally on an extension cable away from the PC and the Bluetooth adapter. If it still stutters with the dongle closed, turn off the overlay bar and phone control. LatencyMon (free) shows which driver stalls the system.
 - **"ANT+ dongle not found":** check that it is plugged in and has the libusbK/WinUSB driver.
 - **Fan not responding:** wrong IP, another network or a firewall. **"wrong token"**: get the token again.
 - Log: `%APPDATA%\AntFan\antfan.log`, settings: `%APPDATA%\AntFan\config.json`. Send the log when asking for help; it contains no token.
