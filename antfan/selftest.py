@@ -55,6 +55,8 @@ def run(out_path: str | None = None) -> int:
         usb_diag.prepare()
         assert getattr(AntPlusDevice, "_antfan_channel_patched", False), "chybí oprava kanálů"
         assert getattr(driver.USBDriver, "_antfan_patched", False), "chybí oprava USB"
+        from openant.easy.node import Node
+        assert getattr(Node, "_antfan_events_patched", False), "chybí události kanálu"
 
     def t_crypto():
         from .miio_fan import MiioClient

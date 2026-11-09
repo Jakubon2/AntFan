@@ -295,6 +295,10 @@ Ve sloupci **Příjem** je vidět, kolik % zpráv od senzoru za posledních 5 s 
 - **Kde je problém, napíše AntFan sám** pod seznamem senzorů:
   - **Výpadky na všech senzorech zároveň:** příčina je v PC. Zkuste jiný USB port (USB 2.0, ne hub), prodlužovačku nebo jiný dongle a dejte router nebo ventilátor dál od donglu.
   - **Vypadává jen jeden senzor:** příčina je u senzoru. Bývá to jeho Bluetooth spojení s Rouvy, protože senzor se rádiem dělí mezi Bluetooth a ANT+. Může to být i baterie nebo u pásu kontakt s kůží.
+- **Kde se zprávy ztratily, pozná AntFan z hlášení donglu.** Dongle u každé zprávy, kterou od senzoru čekal a nedostal, pošle hlášení „zmeškaná zpráva“. Když ztratí spojení se senzorem, ohlásí i to. U každého výpadku je pak v logu příčina:
+  - *dongle zprávy čekal, ale od senzoru nepřišly*: rádio (senzor, dosah, rušení, Bluetooth spojení senzoru s Rouvy),
+  - *dongle ztratil spojení se senzorem*: senzor nevysílal nebo nebyl slyšet,
+  - *dongle zmeškané zprávy nehlásil*: senzor vysílal, ale zprávy se ztratily cestou do programu (USB port, ovladač, vytížený počítač). Takový výpadek se v aplikaci počítá jako problém na straně PC.
 - **Pro diagnostiku** AntFan každých 5 s zapíše do `antfan.log` souhrn příjmu každého senzoru (počet zpráv, nejdelší mezera, změny čítače, výkon). Každý výpadek delší než 1,5 s zapíše zvlášť. Po jízdě pošlete log, z něj je přesně vidět, co se dělo.
 
 ### Rouvy (nebo jiná hra) se s AntFanem seká

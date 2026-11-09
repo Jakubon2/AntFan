@@ -289,6 +289,24 @@ class AntBackend:
             raise usb_diag.DongleBusy(str(last)) from last
         raise last
 
+    @staticmethod
+    def _make_event_hook(by_ch: dict):
+        """Události kanálů z donglu → RxMonitor; přetečení fronty donglu do logu."""
+        last_overflow = [0.0]
+
+        def hook(channel, code):
+            if code in (usb_diag.EV_QUE_OVERFLOW, usb_diag.EV_SERIAL_QUE_OVERFLOW):
+                now = time.monotonic()
+                if now - last_overflow[0] > 10:
+                    last_overflow[0] = now
+                    log.warning("Dongle hlásí přetečení fronty (%d) – počítač nestíhá číst zprávy z USB", code)
+                return
+            mon = by_ch.get(channel)
+            if mon is not None:
+                mon.on_event(code)
+
+        return hook
+
     def _hook_channel(self, dev, handle, mon: RxMonitor):
         """Naše zpracování zprávy běží jako první, přímo z kanálu.
 
@@ -466,6 +484,12 @@ class AntBackend:
             self._devices.append(dev)
 
         self._rx = rx
+        by_ch = {}
+        for dev, mon in zip(self._devices[-len(rx):], rx.values()):
+            ch = getattr(dev, "channel", None)
+            if ch is not None:
+                by_ch[ch.id] = mon
+        node.antfan_event_hook = self._make_event_hook(by_ch)
         self.state = "monitoring"
         names = ", ".join(f"{d.type_name} #{d.device_id}" for d in devices)
         self._status(_("Měřím: {names}").format(names=names))

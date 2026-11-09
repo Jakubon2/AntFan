@@ -147,6 +147,7 @@ def _patch_openant() -> None:
     Ant._antfan_patched = True
     _patch_usb_driver()
     _patch_channel_type()
+    _patch_channel_events()
 
 
 def _patch_channel_type() -> None:
@@ -171,6 +172,53 @@ def _patch_channel_type() -> None:
 
     AntPlusDevice.open_channel = open_channel
     AntPlusDevice._antfan_channel_patched = True
+
+
+# kódy událostí kanálu ANT (openant Message.Code)
+EV_RX_SEARCH_TIMEOUT = 1
+EV_RX_FAIL = 2
+EV_CHANNEL_CLOSED = 7
+EV_RX_FAIL_GO_TO_SEARCH = 8
+EV_SERIAL_QUE_OVERFLOW = 52
+EV_QUE_OVERFLOW = 53
+WATCHED_EVENTS = {EV_RX_SEARCH_TIMEOUT, EV_RX_FAIL, EV_RX_FAIL_GO_TO_SEARCH,
+                  EV_SERIAL_QUE_OVERFLOW, EV_QUE_OVERFLOW}
+
+
+def _patch_channel_events() -> None:
+    """Události kanálu z donglu předá AntFanu (měření příjmu) a nehromadí je.
+
+    Dongle u synchronizovaného kanálu hlásí každou zprávu, kterou od senzoru
+    čekal a nepřišla (EVENT_RX_FAIL), ztrátu synchronizace (GO_TO_SEARCH)
+    a přetečení své fronty, když počítač nestíhá číst z USB (QUE_OVERFLOW).
+    Díky tomu jde poznat, jestli zprávy ztratilo rádio, nebo cesta do PC.
+
+    openant navíc každou takovou událost uloží do seznamu, ze kterého je
+    nikdo nevybírá – za hodinu jízdy desítky tisíc položek. RX_FAIL tam
+    proto už nedáváme (nikdo na ni nečeká).
+    """
+    try:
+        from openant.easy.node import Node
+    except Exception:  # noqa: BLE001
+        return
+    if getattr(Node, "_antfan_events_patched", False):
+        return
+    orig = Node._worker_event
+
+    def worker_event(self, channel, event, data):
+        if event in WATCHED_EVENTS:
+            hook = getattr(self, "antfan_event_hook", None)
+            if hook is not None:
+                try:
+                    hook(channel, event)
+                except Exception:  # noqa: BLE001
+                    log.exception("Zpracování události kanálu")
+            if event == EV_RX_FAIL:
+                return
+        return orig(self, channel, event, data)
+
+    Node._worker_event = worker_event
+    Node._antfan_events_patched = True
 
 
 _tls = threading.local()

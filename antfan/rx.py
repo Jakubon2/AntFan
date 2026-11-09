@@ -31,6 +31,14 @@ GAP_WARN_S = 1.5     # mezera mezi zprávami, která se zapíše do logu
 SUMMARY_S = 5.0      # jak často psát souhrn příjmu do logu
 RATE_WINDOW_S = 5.0  # okno pro výpočet % příjmu
 
+# příčina výpadku podle hlášení donglu (do logu)
+CAUSE_LOG = {
+    "radio": "dongle zprávy čekal, ale od senzoru nepřišly (rádio: senzor, dosah, rušení, Bluetooth)",
+    "radio-lost": "dongle ztratil spojení se senzorem a hledal ho znovu (senzor nevysílal nebo nebyl slyšet)",
+    "pc": "dongle zmeškané zprávy nehlásil, ztratily se cestou do PC (USB, ovladač, vytížený počítač)",
+    "unknown": "příčinu dongle neuvedl",
+}
+
 
 def decode_power(device_type: int, data) -> tuple[int, int, int | None] | None:
     """Vrátí (čítač událostí, okamžitý výkon W, kadence) nebo None, když stránka není výkonová."""
@@ -93,6 +101,38 @@ class RxMonitor:
         self.silence_logged = False
         self.key = (device_id, device_type)
         self._pending_gap: tuple[float, float] | None = None
+        # události kanálu z donglu (viz usb_diag._patch_channel_events)
+        self._fails_since_page = 0
+        self._search_since_page = False
+        self._win_fail = 0
+        self._win_search = 0
+        self.total_fail = 0
+        self.last_gap_cause: str | None = None
+
+    # --------------------------------------------------------------- události donglu
+    def on_event(self, code: int) -> None:
+        """Událost kanálu: 2 = zpráva od senzoru nepřišla, 8 = ztráta synchronizace."""
+        with self._lock:
+            if code == 2:
+                self._fails_since_page += 1
+                self._win_fail += 1
+                self.total_fail += 1
+            elif code == 8:
+                self._search_since_page = True
+                self._win_search += 1
+
+    def _gap_cause(self, gap: float) -> str:
+        """Kde se zprávy během mezery ztratily (podle hlášení donglu)."""
+        expected = max(1.0, gap * self.rate_hz - 1)
+        if self._search_since_page:
+            return "radio-lost"
+        if self._fails_since_page >= 0.5 * expected:
+            return "radio"
+        if self.total_fail == 0:
+            # dongle zmeškané zprávy zatím nikdy nehlásil (některé klony to
+            # nedělají) – z jeho mlčení nic nevyvodíme
+            return "unknown"
+        return "pc"
 
     # --------------------------------------------------------------- příjem
     def on_page(self, data, now: float) -> tuple[int, int | None] | None:
@@ -114,7 +154,11 @@ class RxMonitor:
                 if gap >= GAP_WARN_S:
                     self.total_gaps += 1
                     self._pending_gap = (now - gap, now)
-                    log.warning("Výpadek příjmu %s: %.1f s bez jediné zprávy", self.label, gap)
+                    cause = self.last_gap_cause = self._gap_cause(gap)
+                    log.warning("Výpadek příjmu %s: %.1f s bez jediné zprávy – %s (dongle hlásil %d zmeškaných zpráv)",
+                                self.label, gap, CAUSE_LOG[cause], self._fails_since_page)
+            self._fails_since_page = 0
+            self._search_since_page = False
 
             result = None
             dec = decode_power(self.device_type, data)
@@ -145,8 +189,12 @@ class RxMonitor:
             p = self._last_power
             extra = (f", změn čítače {self._win_ev_changes}, stání čítače {self._win_coast}×"
                      f", P={p[0] if p else '-'} W, kad={p[1] if p else '-'}")
-        log.info("Příjem %s: %d zpráv/%.1f s (%.0f %%), max mezera %.2f s%s, stránky %s",
-                 self.label, self._win_pages, span, min(pct, 999), self._win_max_gap, extra, kinds)
+        log.info("Příjem %s: %d zpráv/%.1f s (%.0f %%), dongle hlásí zmeškaných %d, ztráta spojení %d×"
+                 ", max mezera %.2f s%s, stránky %s",
+                 self.label, self._win_pages, span, min(pct, 999), self._win_fail, self._win_search,
+                 self._win_max_gap, extra, kinds)
+        self._win_fail = 0
+        self._win_search = 0
         self._win_start = now
         self._win_pages = 0
         self._win_kinds.clear()
@@ -204,7 +252,14 @@ class GapClassifier:
             return
         start, end = gap
         with self._lock:
-            if any(m.received_between(start + 0.3, end - 0.3) for m in others):
+            if mon.last_gap_cause == "pc":
+                # dongle zmeškané zprávy nehlásil => senzor vysílal, ztratilo se to v PC
+                if start >= self._last_all_end:
+                    self._last_all_end = end
+                    self._events.append((end, "all", ""))
+                log.warning("Výpadek %s (%.1f s): zprávy se ztratily mezi donglem a programem – "
+                            "příčina je na straně PC: USB port, ovladač, vytížený počítač", mon.label, end - start)
+            elif any(m.received_between(start + 0.3, end - 0.3) for m in others):
                 self._events.append((end, "single", mon.label))
                 log.warning("Výpadek jen u %s (%.1f s), ostatní senzory přijímaly – "
                             "příčina je u senzoru (Bluetooth, baterie, dosah)", mon.label, end - start)
