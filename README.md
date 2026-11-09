@@ -1,13 +1,19 @@
-# AntFan – ventilátor řízený výkonem a tepem (ANT+)
+# AntFan – ventilátor řízený výkonem a tepem (ANT+ / Bluetooth)
 
 [English](README.en.md)
 
-Program pro Windows 10/11 a macOS (Apple Silicon):
+**Pro koho to je:** pro každého, kdo jezdí doma na trenažéru (Rouvy, Zwift, MyWhoosh nebo jen tak) a nechce během jízdy slézat z kola kvůli ventilátoru. Když zaberete, začnete se potit a tep jde nahoru, AntFan ventilátor sám zesílí. Když povolíte nebo si dáte pauzu, zase ho ztlumí. Nic nemusíte mačkat.
 
-1. připojí se k ANT+ USB donglu,
-2. vyhledá všechny tepové pásy, powermetry a chytré trenažéry (ANT+ FE-C) v okolí,
-3. u vybraných zobrazuje výkon, kadenci a tep v reálném čase (s grafem za posledních 10 minut),
-4. podle hodnot nastavuje rychlost ventilátoru **Xiaomi Smart Standing Fan 2 Lite** (`dmaker.fan.1c`, stupně 1–3) přes lokální Wi-Fi.
+**Co k tomu potřebujete:** počítač s Windows nebo Macem, tepový pás, powermetr nebo chytrý trenažér (ANT+ přes USB dongle, nebo Bluetooth) a ventilátor, který jde ovládat přes Wi-Fi: Xiaomi, obyčejný ventilátor v chytré zásuvce Shelly, nebo cokoli v Home Assistantu. Vyzkoušet se dá i bez čehokoli z toho v režimu **Simulace**.
+
+Co program dělá:
+
+1. připojí se k ANT+ USB donglu nebo k Bluetooth senzorům,
+2. vyhledá tepové pásy, powermetry a chytré trenažéry (ANT+ FE-C, Bluetooth FTMS) v okolí,
+3. zobrazuje výkon, kadenci a tep v reálném čase (s grafem za posledních 10 minut),
+4. podle hodnot nastavuje rychlost ventilátoru přes domácí Wi-Fi.
+
+Program je v češtině i angličtině (Nastavení → Vzhled → Jazyk).
 
 ## Podporovaná zařízení
 

@@ -2,7 +2,11 @@
 
 [Česky](README.md)
 
-AntFan is a desktop app for Windows 10/11 and macOS (Apple Silicon) for indoor cycling:
+**Who it is for:** anyone who rides a trainer at home (Rouvy, Zwift, MyWhoosh or just riding) and doesn't want to get off the bike to adjust the fan. When you push harder, start sweating and your heart rate climbs, AntFan turns the fan up on its own. When you ease off or take a break, it turns it down again. No buttons to press.
+
+**What you need:** a Windows PC or a Mac, an HR strap, a power meter or a smart trainer (ANT+ via a USB dongle, or Bluetooth) and a fan that can be controlled over Wi-Fi: Xiaomi, a plain fan on a Shelly smart plug, or anything in Home Assistant. You can try it without any of that in **Simulation** mode.
+
+AntFan is a desktop app for Windows 10/11 and macOS (Apple Silicon) that:
 
 1. connects to an ANT+ USB dongle and/or Bluetooth sensors,
 2. finds HR straps, power meters and smart trainers (ANT+ FE-C, Bluetooth FTMS) nearby,
